@@ -519,7 +519,10 @@ class CometShuffleWriteProcessor(
           partitioning.setNumPartitions(outputPartitioning.numPartitions)
 
           val partitionExprs = hashPartitioning.expressions
-            .flatMap(e => QueryPlanSerde.exprToProto(e, outputAttributes))
+            .flatMap(e => {
+              val (op, _) = QueryPlanSerde.exprToProto(e, outputAttributes)
+              op
+            })
 
           if (partitionExprs.length != hashPartitioning.expressions.length) {
             throw new UnsupportedOperationException(
