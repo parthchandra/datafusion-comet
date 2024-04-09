@@ -67,7 +67,7 @@ object CometExecUtils {
       child: SparkPlan,
       limit: Int): Option[Operator] = {
     getTopKNativePlan(outputAttributes, sortOrder, child, limit).flatMap { topK =>
-      val exprs = projectList.map(exprToProto(_, child.output))
+      val (exprs, exprsInfo) = projectList.map(exprToProto(_, child.output)).unzip
 
       if (exprs.forall(_.isDefined)) {
         val projectBuilder = OperatorOuterClass.Projection.newBuilder()
@@ -127,7 +127,7 @@ object CometExecUtils {
     if (scanTypes.length == outputAttributes.length) {
       scanBuilder.addAllFields(scanTypes.asJava)
 
-      val sortOrders = sortOrder.map(exprToProto(_, child.output))
+      val (sortOrders, sortInfos) = sortOrder.map(exprToProto(_, child.output)).unzip
 
       if (sortOrders.forall(_.isDefined)) {
         val sortBuilder = OperatorOuterClass.Sort.newBuilder()
