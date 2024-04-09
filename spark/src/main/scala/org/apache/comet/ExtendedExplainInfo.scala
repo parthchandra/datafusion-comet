@@ -1,0 +1,85 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+package org.apache.comet
+
+import scala.collection.mutable
+
+import org.apache.spark.sql.ExtendedExplainGenerator
+import org.apache.spark.sql.execution.{InputAdapter, SparkPlan, WholeStageCodegenExec}
+import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanExec, QueryStageExec}
+
+class ExtendedExplainInfo extends ExtendedExplainGenerator {
+
+  override def title: String = "Comet"
+
+  override def generateExtendedInfo(plan: SparkPlan): String = {
+    val info = extensionInfo(plan)
+    info.distinct.mkString("\n")
+  }
+
+  private def getActualPlan(plan: SparkPlan): SparkPlan = {
+    plan match {
+      case p: AdaptiveSparkPlanExec => getActualPlan(p.executedPlan)
+      case p: InputAdapter => getActualPlan(p.child)
+      case p: QueryStageExec => getActualPlan(p.plan)
+      case p: WholeStageCodegenExec => getActualPlan(p.child)
+      case p => p
+    }
+  }
+
+  private def extensionInfo(plan: SparkPlan): mutable.Seq[String] = {
+    var info = mutable.Seq[String]()
+    val sorted = sortup(plan)
+    sorted.foreach(p => {
+      val s =
+        getActualPlan(p).getTagValue(CometExplainInfo.EXTENSION_INFO).map(t => t).getOrElse("")
+      if (s.nonEmpty) {
+        info = info :+ s
+      }
+    })
+    info
+  }
+
+  // get all plan nodes, breadth first, leaf nodes first
+  private def sortup(plan: SparkPlan): mutable.Queue[SparkPlan] = {
+    val ordered = new mutable.Queue[SparkPlan]()
+    val traversed = mutable.Queue[SparkPlan](getActualPlan(plan))
+    while (traversed.nonEmpty) {
+      val s = traversed.dequeue()
+      ordered += s
+      if (s.innerChildren.nonEmpty) {
+        s.innerChildren.foreach(c => {
+          c match {
+            case _: SparkPlan => traversed.enqueue(getActualPlan(c.asInstanceOf[SparkPlan]))
+            case _ =>
+          }
+          ()
+        })
+      }
+      if (s.children.nonEmpty) {
+        s.children.foreach(c => {
+          traversed.enqueue(getActualPlan(c))
+          ()
+        })
+      }
+    }
+    ordered.reverse
+  }
+}
