@@ -484,7 +484,6 @@ class CometSparkSessionExtensions
               CometTakeOrderedAndProjectExec
                 .isSupported(s)
                 ._1 =>
-          // TODO: support offset for Spark 3.4
           val (newOp, info) = QueryPlanSerde.operator2Proto(s)
           newOp match {
             case Some(nativeOp) =>
@@ -691,9 +690,7 @@ class CometSparkSessionExtensions
         case op =>
           // An operator that is not supported by Comet
           op match {
-            case b: CometExec => b
-            case b: CometBroadcastExchangeExec => b
-            case b: CometShuffleExchangeExec => b
+            case _: CometExec | _: CometBroadcastExchangeExec | _: CometShuffleExchangeExec => op
             case o =>
               opWithInfo(o, CometExplainInfo(s"${o.nodeName} is not supported"))
           }

@@ -47,13 +47,13 @@ class ExtendedExplainInfo extends ExtendedExplainGenerator {
   private def extensionInfo(plan: SparkPlan): mutable.Seq[String] = {
     var info = mutable.Seq[String]()
     val sorted = sortup(plan)
-    sorted.foreach(p => {
+    sorted.foreach { p =>
       val s =
-        getActualPlan(p).getTagValue(CometExplainInfo.EXTENSION_INFO).map(t => t).getOrElse("")
+        getActualPlan(p).getTagValue(CometExplainInfo.EXTENSION_INFO).getOrElse("")
       if (s.nonEmpty) {
         info = info :+ s
       }
-    })
+    }
     info
   }
 
@@ -65,18 +65,14 @@ class ExtendedExplainInfo extends ExtendedExplainGenerator {
       val s = traversed.dequeue()
       ordered += s
       if (s.innerChildren.nonEmpty) {
-        s.innerChildren.foreach(c => {
-          c match {
-            case _: SparkPlan => traversed.enqueue(getActualPlan(c.asInstanceOf[SparkPlan]))
-            case _ =>
-          }
-          ()
-        })
+        s.innerChildren.foreach {
+          case c@(_: SparkPlan) => traversed.enqueue(getActualPlan(c))
+          case _ =>
+        }
       }
       if (s.children.nonEmpty) {
         s.children.foreach(c => {
           traversed.enqueue(getActualPlan(c))
-          ()
         })
       }
     }
