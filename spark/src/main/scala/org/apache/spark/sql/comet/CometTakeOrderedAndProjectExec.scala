@@ -126,7 +126,8 @@ object CometTakeOrderedAndProjectExec extends ShimCometTakeOrderedAndProjectExec
   def isSupported(plan: TakeOrderedAndProjectExec): (Boolean, CometExplainInfo) = {
     val exprs = plan.projectList.map(exprToProto(_, plan.child.output))
     val sortOrders = plan.sortOrder.map(exprToProto(_, plan.child.output))
-    val isSupportedForAll = exprs.forall(_._1.isDefined) && sortOrders.forall(_._1.isDefined)
+    val isSupportedForAll = exprs.forall(_._1.isDefined) && sortOrders.forall(
+      _._1.isDefined) && getOffset(plan).getOrElse(0) == 0
     if (isSupportedForAll) {
       (true, CometExplainInfo.none)
     } else {
