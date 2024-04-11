@@ -66,7 +66,7 @@ class ExtendedExplainInfo extends ExtendedExplainGenerator {
       ordered += s
       if (s.innerChildren.nonEmpty) {
         s.innerChildren.foreach {
-          case c@(_: SparkPlan) => traversed.enqueue(getActualPlan(c))
+          case c @ (_: SparkPlan) => traversed.enqueue(getActualPlan(c))
           case _ =>
         }
       }
