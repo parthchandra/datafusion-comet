@@ -303,11 +303,8 @@ class CometSparkSessionExtensions
 
         case op if shouldApplyRowToColumnar(conf, op) =>
           val cometOp = CometRowToColumnarExec(op)
-          val (nativeOp, info) = QueryPlanSerde.operator2Proto(cometOp)
-          nativeOp match {
-            case Some(scanOp) => CometScanWrapper(scanOp, op)
-            case None => opWithInfo(op, info)
-          }
+          val nativeOp = QueryPlanSerde.operator2Proto(cometOp)._1.get
+          CometScanWrapper(nativeOp, cometOp)
 
         case op: ProjectExec =>
           val (newOp, info) = transform1(op)
@@ -360,6 +357,22 @@ class CometSparkSessionExtensions
               op
           }
 
+
+        case op: CollectLimitExec
+          if isCometNative(op.child) && isCometOperatorEnabled(conf, "collectLimit")
+            && isCometShuffleEnabled(conf)
+            && getOffset(op) == 0 =>
+          QueryPlanSerde.operator2Proto(op)._1 match {
+            case Some(nativeOp) =>
+              val offset = getOffset(op)
+              val cometOp =
+                CometCollectLimitExec(op, op.limit, offset, op.child)
+              CometSinkPlaceHolder(nativeOp, op, cometOp)
+            case None =>
+              op
+          }
+
+/*
         case op: CollectLimitExec
             if isCometNative(op.child) && isCometOperatorEnabled(conf, "collectLimit")
               && isCometShuffleEnabled(conf)
@@ -374,6 +387,7 @@ class CometSparkSessionExtensions
             case None =>
               opWithInfo(op, info)
           }
+*/
 
         case op: ExpandExec =>
           val (newOp, info) = transform1(op)

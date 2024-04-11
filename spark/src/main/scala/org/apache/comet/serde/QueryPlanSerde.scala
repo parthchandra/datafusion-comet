@@ -2433,6 +2433,7 @@ object QueryPlanSerde extends Logging with ShimQueryPlanSerde {
       case _: CometRowToColumnarExec => true
       case _: CometSinkPlaceHolder => true
       case _: CoalesceExec => true
+      case _: CollectLimitExec => true
       case _: UnionExec => true
       case _: ShuffleExchangeExec => true
       case ShuffleQueryStageExec(_, _: CometShuffleExchangeExec, _) => true
