@@ -357,22 +357,6 @@ class CometSparkSessionExtensions
               op
           }
 
-
-        case op: CollectLimitExec
-          if isCometNative(op.child) && isCometOperatorEnabled(conf, "collectLimit")
-            && isCometShuffleEnabled(conf)
-            && getOffset(op) == 0 =>
-          QueryPlanSerde.operator2Proto(op)._1 match {
-            case Some(nativeOp) =>
-              val offset = getOffset(op)
-              val cometOp =
-                CometCollectLimitExec(op, op.limit, offset, op.child)
-              CometSinkPlaceHolder(nativeOp, op, cometOp)
-            case None =>
-              op
-          }
-
-/*
         case op: CollectLimitExec
             if isCometNative(op.child) && isCometOperatorEnabled(conf, "collectLimit")
               && isCometShuffleEnabled(conf)
@@ -387,7 +371,6 @@ class CometSparkSessionExtensions
             case None =>
               opWithInfo(op, info)
           }
-*/
 
         case op: ExpandExec =>
           val (newOp, info) = transform1(op)
