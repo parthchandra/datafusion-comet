@@ -520,7 +520,7 @@ class CometShuffleWriteProcessor(
 
           val partitionExprs = hashPartitioning.expressions
             .flatMap(e => {
-              val (op, _) = QueryPlanSerde.exprToProto(e, outputAttributes)
+              val op = QueryPlanSerde.exprToProto(e, outputAttributes)
               op
             })
 

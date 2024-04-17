@@ -29,7 +29,6 @@ import org.apache.spark.sql.execution.metric.{SQLMetrics, SQLShuffleReadMetricsR
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
-import org.apache.comet.CometExplainInfo
 import org.apache.comet.serde.QueryPlanSerde.exprToProto
 import org.apache.comet.shims.ShimCometTakeOrderedAndProjectExec
 
@@ -123,15 +122,15 @@ case class CometTakeOrderedAndProjectExec(
 
 object CometTakeOrderedAndProjectExec extends ShimCometTakeOrderedAndProjectExec {
   // TODO: support offset for Spark 3.4
-  def isSupported(plan: TakeOrderedAndProjectExec): (Boolean, CometExplainInfo) = {
+  def isSupported(plan: TakeOrderedAndProjectExec): Boolean = {
     val exprs = plan.projectList.map(exprToProto(_, plan.child.output))
     val sortOrders = plan.sortOrder.map(exprToProto(_, plan.child.output))
-    val isSupportedForAll = exprs.forall(_._1.isDefined) && sortOrders.forall(
-      _._1.isDefined) && getOffset(plan).getOrElse(0) == 0
+    val isSupportedForAll = exprs.forall(_.isDefined) && sortOrders.forall(
+      _.isDefined) && getOffset(plan).getOrElse(0) == 0
     if (isSupportedForAll) {
-      (true, CometExplainInfo.none)
+      true
     } else {
-      (false, CometExplainInfo("TakeOrderedAndProject", exprs.map(_._2) ++ sortOrders.map(_._2)))
+      false
     }
   }
 }

@@ -22,6 +22,7 @@ package org.apache.comet
 import scala.collection.mutable
 
 import org.apache.spark.sql.ExtendedExplainGenerator
+import org.apache.spark.sql.catalyst.trees.{TreeNode, TreeNodeTag}
 import org.apache.spark.sql.execution.{InputAdapter, SparkPlan, WholeStageCodegenExec}
 import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanExec, QueryStageExec}
 
@@ -34,8 +35,8 @@ class ExtendedExplainInfo extends ExtendedExplainGenerator {
     info.distinct.mkString("\n")
   }
 
-  private def getActualPlan(plan: SparkPlan): SparkPlan = {
-    plan match {
+  private def getActualPlan(node: TreeNode[_]): TreeNode[_] = {
+    node match {
       case p: AdaptiveSparkPlanExec => getActualPlan(p.executedPlan)
       case p: InputAdapter => getActualPlan(p.child)
       case p: QueryStageExec => getActualPlan(p.plan)
@@ -44,9 +45,9 @@ class ExtendedExplainInfo extends ExtendedExplainGenerator {
     }
   }
 
-  private def extensionInfo(plan: SparkPlan): mutable.Seq[String] = {
+  private def extensionInfo(node: TreeNode[_]): mutable.Seq[String] = {
     var info = mutable.Seq[String]()
-    val sorted = sortup(plan)
+    val sorted = sortup(node)
     sorted.foreach { p =>
       val s =
         getActualPlan(p).getTagValue(CometExplainInfo.EXTENSION_INFO).getOrElse("")
@@ -58,24 +59,29 @@ class ExtendedExplainInfo extends ExtendedExplainGenerator {
   }
 
   // get all plan nodes, breadth first, leaf nodes first
-  private def sortup(plan: SparkPlan): mutable.Queue[SparkPlan] = {
-    val ordered = new mutable.Queue[SparkPlan]()
-    val traversed = mutable.Queue[SparkPlan](getActualPlan(plan))
+  private def sortup(node: TreeNode[_]): mutable.Queue[TreeNode[_]] = {
+    val ordered = new mutable.Queue[TreeNode[_]]()
+    val traversed = mutable.Queue[TreeNode[_]](getActualPlan(node))
     while (traversed.nonEmpty) {
       val s = traversed.dequeue()
       ordered += s
       if (s.innerChildren.nonEmpty) {
         s.innerChildren.foreach {
-          case c @ (_: SparkPlan) => traversed.enqueue(getActualPlan(c))
+          case c @ (_: TreeNode[_]) => traversed.enqueue(getActualPlan(c))
           case _ =>
         }
       }
       if (s.children.nonEmpty) {
-        s.children.foreach(c => {
-          traversed.enqueue(getActualPlan(c))
-        })
+        s.children.foreach {
+          case c @ (_: TreeNode[_]) => traversed.enqueue(getActualPlan(c))
+          case _ =>
+        }
       }
     }
     ordered.reverse
   }
+}
+
+object CometExplainInfo {
+  val EXTENSION_INFO = new TreeNodeTag[String]("CometExtensionInfo")
 }
