@@ -32,7 +32,7 @@ import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.internal.SQLConf.SESSION_LOCAL_TIMEZONE
 import org.apache.spark.sql.types.{Decimal, DecimalType}
 
-import org.apache.comet.CometSparkSessionExtensions.{isSpark32, isSpark33Plus, isSpark34Plus}
+import org.apache.comet.CometSparkSessionExtensions.{isSpark32, isSpark33Plus, isSpark34Plus, isSpark40Plus}
 
 class CometExpressionSuite extends CometTestBase with AdaptiveSparkPlanHelper {
   import testImplicits._
@@ -1578,6 +1578,9 @@ class CometExpressionSuite extends CometTestBase with AdaptiveSparkPlanHelper {
             val df = sql(qry)
             df.collect() // force an execution
             checkSparkAnswerAndCompareExplainPlan(df, expected)
+            if (isSpark40Plus) {
+              checkSparkExplainPlan(df, expected)
+            }
           })
       }
     }

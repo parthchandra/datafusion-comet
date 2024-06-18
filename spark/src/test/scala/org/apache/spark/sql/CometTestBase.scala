@@ -239,6 +239,7 @@ abstract class CometTestBase
     (expected, actual)
   }
 
+  // Checks spark answer and also checks if the executed plan had the correct explain info
   protected def checkSparkAnswerAndCompareExplainPlan(
       df: DataFrame,
       expectedInfo: Set[String]): Unit = {
@@ -250,17 +251,28 @@ abstract class CometTestBase
     }
     val dfComet = Dataset.ofRows(spark, df.logicalPlan)
     checkAnswer(dfComet, expected)
-    val diff = StringUtils.difference(
-      dfSpark.queryExecution.explainString(ExtendedMode),
-      dfComet.queryExecution.explainString(ExtendedMode))
-    if (supportsExtendedExplainInfo(dfSpark.queryExecution)) {
-      assert(expectedInfo.forall(s => diff.contains(s)))
-    }
     val extendedInfo =
       new ExtendedExplainInfo().generateExtendedInfo(dfComet.queryExecution.executedPlan)
     val expectedStr = expectedInfo.toSeq.sorted.mkString("\n")
     if (!extendedInfo.equalsIgnoreCase(expectedStr)) {
       fail(s"$extendedInfo != $expectedStr (case-insensitive comparison)")
+    }
+  }
+
+  // This checks explain info reported by Spark. Only supported in Spark 4.0 +
+  protected def checkSparkExplainPlan(df: DataFrame, expectedInfo: Set[String]): Unit = {
+//    var expected: Array[Row] = Array.empty
+    var dfSpark: Dataset[Row] = null
+    withSQLConf(CometConf.COMET_ENABLED.key -> "false", EXTENDED_EXPLAIN_PROVIDERS_KEY -> "") {
+      dfSpark = Dataset.ofRows(spark, df.logicalPlan)
+//      expected = dfSpark.collect()
+    }
+    val dfComet = Dataset.ofRows(spark, df.logicalPlan)
+    val diff = StringUtils.difference(
+      dfSpark.queryExecution.explainString(ExtendedMode),
+      dfComet.queryExecution.explainString(ExtendedMode))
+    if (supportsExtendedExplainInfo(dfSpark.queryExecution)) {
+      assert(expectedInfo.forall(s => diff.contains(s)))
     }
   }
 
