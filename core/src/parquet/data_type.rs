@@ -40,6 +40,7 @@ make_type!(FloatType);
 make_type!(DoubleType);
 make_type!(FloatToDoubleType);
 make_type!(ByteArrayType);
+make_type!(ByteArrayDecimalType);
 make_type!(StringType);
 make_type!(Int32DecimalType);
 make_type!(Int64DecimalType);

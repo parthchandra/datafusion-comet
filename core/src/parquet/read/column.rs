@@ -67,6 +67,7 @@ pub enum ColumnReader {
     FloatColumnReader(TypedColumnReader<FloatType>),
     FloatToDoubleColumnReader(TypedColumnReader<FloatToDoubleType>),
     DoubleColumnReader(TypedColumnReader<DoubleType>),
+    ByteArrayDecimalColumnReader(TypedColumnReader<ByteArrayDecimalType>),
     ByteArrayColumnReader(TypedColumnReader<ByteArrayType>),
     StringColumnReader(TypedColumnReader<StringType>),
     FLBADecimalColumnReader(TypedColumnReader<FLBADecimalType>),
@@ -251,6 +252,18 @@ impl ColumnReader {
                         // https://github.com/apache/parquet-format/blob/master/LogicalTypes.md
                         // "enum type should interpret ENUM annotated field as a UTF-8"
                         LogicalType::Enum => typed_reader!(StringColumnReader, Utf8),
+                        LogicalType::Decimal {
+                            precision,
+                            scale: _,
+                        } => {
+                            typed_reader!(
+                                ByteArrayDecimalColumnReader,
+                                ArrowDataType::Decimal128(
+                                    promotion_info.precision as u8,
+                                    promotion_info.scale as i8
+                                )
+                            )
+                        }
                         lt => panic!("Unsupported logical type for BYTE_ARRAY: {:?}", lt),
                     }
                 } else {

@@ -21,6 +21,7 @@ package org.apache.comet.parquet
 
 import java.io.{File, FileFilter}
 import java.math.BigDecimal
+import java.nio.ByteBuffer
 import java.time.{ZoneId, ZoneOffset}
 
 import scala.reflect.ClassTag
@@ -32,6 +33,7 @@ import org.scalatest.Tag
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
 import org.apache.parquet.example.data.simple.SimpleGroup
+import org.apache.parquet.io.api.Binary
 import org.apache.parquet.schema.MessageTypeParser
 import org.apache.spark.SparkException
 import org.apache.spark.sql.{CometTestBase, DataFrame, Row}
@@ -47,6 +49,7 @@ import org.apache.spark.unsafe.types.UTF8String
 import com.google.common.primitives.UnsignedLong
 
 import org.apache.comet.CometConf
+import org.apache.comet.CometConf.{COMET_ENABLED, COMET_USE_DECIMAL_128}
 import org.apache.comet.CometSparkSessionExtensions.{isSpark34Plus, isSpark40Plus}
 
 abstract class ParquetReadSuite extends CometTestBase {
@@ -1040,6 +1043,47 @@ abstract class ParquetReadSuite extends CometTestBase {
       Seq(866, 20, 492, 76, 824, 604, 343, 820, 864, 243)
         .zip(last10Df)
         .forall(d => d._1 == d._2.getDecimal(0).unscaledValue().intValue()))
+  }
+
+  test("parquet binary decimal field") {
+    def makeRawParquetFile(path: Path, dictionaryEnabled: Boolean): Unit = {
+      val schemaStr =
+        """message root {
+          |  required BINARY binary_decimal_field(DECIMAL(19,2));
+          |}
+        """.stripMargin
+      val schema = MessageTypeParser.parseMessageType(schemaStr)
+
+      val writer = createParquetWriter(schema, path, dictionaryEnabled)
+
+      (100 until 120).foreach { n =>
+        val record = new SimpleGroup(schema)
+        val buffer = ByteBuffer.allocate(8).putInt(n)
+        buffer.flip()
+        val binaryValue: Binary = Binary.fromConstantByteBuffer(buffer)
+        record.add(0, binaryValue)
+        writer.write(record)
+      }
+      writer.close()
+    }
+
+    Seq(true, false).foreach { dictionaryEnabled =>
+      {
+        withTempDir { dir =>
+          val path = new Path(dir.toURI.toString, "binary_decimal.parquet")
+          makeRawParquetFile(path, dictionaryEnabled)
+              withSQLConf(
+                COMET_ENABLED.key -> "true",
+                COMET_USE_DECIMAL_128.key -> "true",
+                "spark.sql.parquet.enableVectorizedReader" -> "false") {
+                val df = readParquetFile(path.toString) { df =>
+//                  df.show()
+                  checkSparkAnswer(df)
+                }
+              }
+        }
+      }
+    }
   }
 
   private val actions: Seq[DataFrame => DataFrame] = Seq(
