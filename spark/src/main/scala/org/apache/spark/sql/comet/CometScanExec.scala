@@ -19,6 +19,7 @@
 
 package org.apache.spark.sql.comet
 
+import scala.collection.mutable.HashMap
 import scala.concurrent.duration.NANOSECONDS
 import scala.reflect.ClassTag
 
@@ -32,17 +33,18 @@ import org.apache.spark.sql.catalyst.plans.QueryPlan
 import org.apache.spark.sql.catalyst.plans.physical._
 import org.apache.spark.sql.catalyst.util.CaseInsensitiveMap
 import org.apache.spark.sql.comet.shims.ShimCometScanExec
-import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.datasources._
+import org.apache.spark.sql.execution.datasources.parquet.ParquetOptions
+import org.apache.spark.sql.execution.datasources.v2.DataSourceRDD
 import org.apache.spark.sql.execution.metric._
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.vectorized.ColumnarBatch
-import org.apache.spark.util.ArrayImplicits.SparkArrayOps
+import org.apache.spark.util.SerializableConfiguration
 import org.apache.spark.util.collection._
 
-import org.apache.comet.MetricsSupport
-import org.apache.comet.parquet.CometParquetFileFormat
+import org.apache.comet.{CometConf, MetricsSupport}
+import org.apache.comet.parquet.{CometParquetFileFormat, CometParquetPartitionReaderFactory}
 
 /**
  * Comet physical scan node for DataSource V1. Most of the code here follow Spark's
@@ -59,7 +61,7 @@ case class CometScanExec(
     tableIdentifier: Option[TableIdentifier],
     disableBucketedScan: Boolean = false,
     wrapped: FileSourceScanExec)
-    extends FileSourceScanLike
+    extends DataSourceScanExec
     with ShimCometScanExec
     with CometPlan {
 
@@ -69,33 +71,40 @@ case class CometScanExec(
 
   override def vectorTypes: Option[Seq[String]] = wrapped.vectorTypes
 
-//  lazy val driverMetrics: HashMap[String, Long] = HashMap.empty
+  private lazy val driverMetrics: HashMap[String, Long] = HashMap.empty
 
   /**
    * Send the driver-side metrics. Before calling this function, selectedPartitions has been
    * initialized. See SPARK-26327 for more details.
    */
-//  private def sendDriverMetrics(): Unit = {
-//    driverMetrics.foreach(e => metrics(e._1).add(e._2))
-//    val executionId = sparkContext.getLocalProperty(SQLExecution.EXECUTION_ID_KEY)
-//    SQLMetrics.postDriverMetricUpdates(
-//      sparkContext,
-//      executionId,
-//      metrics.filter(e => driverMetrics.contains(e._1)).values.toSeq)
-//  }
+  private def sendDriverMetrics(): Unit = {
+    driverMetrics.foreach(e => metrics(e._1).add(e._2))
+    val executionId = sparkContext.getLocalProperty(SQLExecution.EXECUTION_ID_KEY)
+    SQLMetrics.postDriverMetricUpdates(
+      sparkContext,
+      executionId,
+      metrics.filter(e => driverMetrics.contains(e._1)).values.toSeq)
+  }
 
   private def isDynamicPruningFilter(e: Expression): Boolean =
     e.find(_.isInstanceOf[PlanExpression[_]]).isDefined
 
-  @transient override lazy val selectedPartitions: ScanFileListing = {
-    wrapped.selectedPartitions
-  }
+  @transient lazy val selectedPartitions: Array[PartitionDirectory] = {
+    val optimizerMetadataTimeNs = relation.location.metadataOpsTimeNs.getOrElse(0L)
+    val startTime = System.nanoTime()
+    val ret =
+      relation.location.listFiles(partitionFilters.filterNot(isDynamicPruningFilter), dataFilters)
+    setFilesNumAndSizeMetric(ret, true)
+    val timeTakenMs =
+      NANOSECONDS.toMillis((System.nanoTime() - startTime) + optimizerMetadataTimeNs)
+    driverMetrics("metadataTime") = timeTakenMs
+    ret
+  }.toArray
 
   // We can only determine the actual partitions at runtime when a dynamic partition filter is
   // present. This is because such a filter relies on information that is only available at run
   // time (for instance the keys used in the other side of a join).
-  @transient override protected lazy val dynamicallySelectedPartitions: ScanFileListing = {
-    val dynamicDataFilters = dataFilters.filter(isDynamicPruningFilter)
+  @transient private lazy val dynamicallySelectedPartitions: Array[PartitionDirectory] = {
     val dynamicPartitionFilters = partitionFilters.filter(isDynamicPruningFilter)
 
     if (dynamicPartitionFilters.nonEmpty) {
@@ -109,46 +118,27 @@ case class CometScanExec(
           BoundReference(index, partitionColumns(index).dataType, nullable = true)
         },
         Nil)
-      val returnedFiles =
-        selectedPartitions.filterAndPruneFiles(boundPredicate, dynamicDataFilters)
-      setFilesNumAndSizeMetric(returnedFiles, false)
-      val timeTakenMs = NANOSECONDS.toMillis(System.nanoTime() - startTime)
-      driverMetrics("pruningTime").set(timeTakenMs)
-      returnedFiles
+      val ret = selectedPartitions.filter(p => boundPredicate.eval(p.values))
+      setFilesNumAndSizeMetric(ret, false)
+      val timeTakenMs = (System.nanoTime() - startTime) / 1000 / 1000
+      driverMetrics("pruningTime") = timeTakenMs
+      ret
     } else {
       selectedPartitions
     }
   }
 
   // exposed for testing
-  override lazy val bucketedScan: Boolean = wrapped.bucketedScan
+  lazy val bucketedScan: Boolean = wrapped.bucketedScan
 
   override lazy val (outputPartitioning, outputOrdering): (Partitioning, Seq[SortOrder]) =
     (wrapped.outputPartitioning, wrapped.outputOrdering)
 
-//  def translateToV1Filters(
-//      dataFilters: Seq[Expression],
-//      scalarSubqueryToLiteral: execution.ScalarSubquery => Literal): Seq[Filter] = {
-//    val scalarSubqueryReplaced = dataFilters.map(_.transform {
-//      // Replace scalar subquery to literal so that `DataSourceStrategy.translateFilter` can
-//      // support translating it.
-//      case scalarSubquery: execution.ScalarSubquery => scalarSubqueryToLiteral(scalarSubquery)
-//    })
-//
-//    val supportNestedPredicatePushdown = DataSourceUtils.supportNestedPredicatePushdown(relation)
-//    // `dataFilters` should not include any constant metadata col filters
-//    // because the metadata struct has been flatted in FileSourceStrategy
-//    // and thus metadata col filters are invalid to be pushed down. Metadata that is generated
-//    // during the scan can be used for filters.
-//    scalarSubqueryReplaced
-//      .filterNot(_.references.exists {
-//        case FileSourceConstantMetadataAttribute(_) => true
-//        case _ => false
-//      })
-//      .flatMap(DataSourceStrategy.translateFilter(_, supportNestedPredicatePushdown))
-//  }
-//  @transient
-//  private lazy val pushedDownFilters = translateToV1Filters(dataFilters, _.toLiteral)
+  @transient
+  private lazy val pushedDownFilters = {
+    val supportNestedPredicatePushdown = DataSourceUtils.supportNestedPredicatePushdown(relation)
+    dataFilters.flatMap(DataSourceStrategy.translateFilter(_, supportNestedPredicatePushdown))
+  }
 
   override lazy val metadata: Map[String, String] =
     if (wrapped == null) Map.empty else wrapped.metadata
@@ -173,9 +163,13 @@ case class CometScanExec(
           relation.sparkSession.sessionState.newHadoopConfWithOptions(relation.options))
 
     val readRDD = if (bucketedScan) {
-      createBucketedReadRDD(relation.bucketSpec.get, readFile, dynamicallySelectedPartitions)
+      createBucketedReadRDD(
+        relation.bucketSpec.get,
+        readFile,
+        dynamicallySelectedPartitions,
+        relation)
     } else {
-      createReadRDD(readFile, dynamicallySelectedPartitions)
+      createReadRDD(readFile, dynamicallySelectedPartitions, relation)
     }
     sendDriverMetrics()
     readRDD
@@ -186,18 +180,20 @@ case class CometScanExec(
   }
 
   /** Helper for computing total number and size of files in selected partitions. */
-  private def setFilesNumAndSizeMetric(partitions: ScanFileListing, static: Boolean): Unit = {
-    val filesNum = partitions.totalNumberOfFiles
-    val filesSize = partitions.totalFileSize
+  private def setFilesNumAndSizeMetric(
+      partitions: Seq[PartitionDirectory],
+      static: Boolean): Unit = {
+    val filesNum = partitions.map(_.files.size.toLong).sum
+    val filesSize = partitions.map(_.files.map(_.getLen).sum).sum
     if (!static || !partitionFilters.exists(isDynamicPruningFilter)) {
-      driverMetrics("numFiles").set(filesNum)
-      driverMetrics("filesSize").set(filesSize)
+      driverMetrics("numFiles") = filesNum
+      driverMetrics("filesSize") = filesSize
     } else {
-      driverMetrics("staticFilesNum").set(filesNum)
-      driverMetrics("staticFilesSize").set(filesSize)
+      driverMetrics("staticFilesNum") = filesNum
+      driverMetrics("staticFilesSize") = filesSize
     }
     if (relation.partitionSchema.nonEmpty) {
-      driverMetrics("numPartitions").set(partitions.partitionCount)
+      driverMetrics("numPartitions") = partitions.length
     }
   }
 
@@ -263,18 +259,27 @@ case class CometScanExec(
    *   a function to read each (part of a) file.
    * @param selectedPartitions
    *   Hive-style partition that are part of the read.
+   * @param fsRelation
+   *   [[HadoopFsRelation]] associated with the read.
    */
   private def createBucketedReadRDD(
       bucketSpec: BucketSpec,
       readFile: (PartitionedFile) => Iterator[InternalRow],
-      selectedPartitions: ScanFileListing): RDD[InternalRow] = {
-    logInfo("Planning with ${bucketSpec.numBuckets} buckets")
-    val partitionArray = selectedPartitions.toPartitionArray
-    val filesGroupedToBuckets = partitionArray.groupBy { f =>
-      BucketingUtils
-        .getBucketId(f.toPath.getName)
-        .getOrElse(throw QueryExecutionErrors.invalidBucketFile(f.urlEncodedPath))
-    }
+      selectedPartitions: Array[PartitionDirectory],
+      fsRelation: HadoopFsRelation): RDD[InternalRow] = {
+    logInfo(s"Planning with ${bucketSpec.numBuckets} buckets")
+    val filesGroupedToBuckets =
+      selectedPartitions
+        .flatMap { p =>
+          p.files.map { f =>
+            getPartitionedFile(f, p)
+          }
+        }
+        .groupBy { f =>
+          BucketingUtils
+            .getBucketId(new Path(f.filePath.toString()).getName)
+            .getOrElse(throw invalidBucketFile(f.filePath.toString(), sparkContext.version))
+        }
 
     val prunedFilesGroupedToBuckets = if (optionalBucketSet.isDefined) {
       val bucketSet = optionalBucketSet.get
@@ -287,7 +292,7 @@ case class CometScanExec(
 
     val filePartitions = optionalNumCoalescedBuckets
       .map { numCoalescedBuckets =>
-        logInfo("Coalescing to $numCoalescedBuckets buckets")
+        logInfo(s"Coalescing to ${numCoalescedBuckets} buckets")
         val coalescedBuckets = prunedFilesGroupedToBuckets.groupBy(_._1 % numCoalescedBuckets)
         Seq.tabulate(numCoalescedBuckets) { bucketId =>
           val partitionedFiles = coalescedBuckets
@@ -305,14 +310,7 @@ case class CometScanExec(
         }
       }
 
-    new FileScanRDD(
-      relation.sparkSession,
-      readFile,
-      filePartitions,
-      new StructType(requiredSchema.fields ++ relation.partitionSchema.fields),
-      fileConstantMetadataColumns,
-      relation.fileFormat.fileConstantMetadataExtractors,
-      new FileSourceOptions(CaseInsensitiveMap(relation.options)))
+    prepareRDD(fsRelation, readFile, filePartitions)
   }
 
   /**
@@ -323,20 +321,22 @@ case class CometScanExec(
    *   a function to read each (part of a) file.
    * @param selectedPartitions
    *   Hive-style partition that are part of the read.
+   * @param fsRelation
+   *   [[HadoopFsRelation]] associated with the read.
    */
   private def createReadRDD(
-      readFile: PartitionedFile => Iterator[InternalRow],
-      selectedPartitions: ScanFileListing): RDD[InternalRow] = {
-    val openCostInBytes = relation.sparkSession.sessionState.conf.filesOpenCostInBytes
+      readFile: (PartitionedFile) => Iterator[InternalRow],
+      selectedPartitions: Array[PartitionDirectory],
+      fsRelation: HadoopFsRelation): RDD[InternalRow] = {
+    val openCostInBytes = fsRelation.sparkSession.sessionState.conf.filesOpenCostInBytes
     val maxSplitBytes =
-      FilePartition.maxSplitBytes(relation.sparkSession, selectedPartitions)
+      FilePartition.maxSplitBytes(fsRelation.sparkSession, selectedPartitions)
     logInfo(
-      "Planning scan with bin packing, max size: $maxSplitBytes " +
-        "bytes, open cost is considered as scanning $openCostInBytes " +
-        "bytes.")
+      s"Planning scan with bin packing, max size: $maxSplitBytes bytes, " +
+        s"open cost is considered as scanning $openCostInBytes bytes.")
 
     // Filter files with bucket pruning if possible
-    val bucketingEnabled = relation.sparkSession.sessionState.conf.bucketingEnabled
+    val bucketingEnabled = fsRelation.sparkSession.sessionState.conf.bucketingEnabled
     val shouldProcess: Path => Boolean = optionalBucketSet match {
       case Some(bucketSet) if bucketingEnabled =>
         // Do not prune the file if bucket file name is invalid
@@ -345,79 +345,78 @@ case class CometScanExec(
         _ => true
     }
 
-    val splitFiles = selectedPartitions.filePartitionIterator
+    val splitFiles = selectedPartitions
       .flatMap { partition =>
-        val ListingPartition(partitionVals, _, fileStatusIterator) = partition
-        fileStatusIterator.flatMap { file =>
-          if (shouldProcess(file.getPath)) {
+        partition.files.flatMap { file =>
+          // getPath() is very expensive so we only want to call it once in this block:
+          val filePath = file.getPath
+
+          if (shouldProcess(filePath)) {
             val isSplitable = relation.fileFormat.isSplitable(
               relation.sparkSession,
               relation.options,
-              file.getPath)
-            PartitionedFileUtil.splitFiles(
+              filePath) &&
+              // SPARK-39634: Allow file splitting in combination with row index generation once
+              // the fix for PARQUET-2161 is available.
+              !isNeededForSchema(requiredSchema)
+            super.splitFiles(
+              sparkSession = relation.sparkSession,
               file = file,
+              filePath = filePath,
               isSplitable = isSplitable,
               maxSplitBytes = maxSplitBytes,
-              partitionValues = partitionVals)
+              partitionValues = partition.values)
           } else {
             Seq.empty
           }
         }
       }
-      .toArray
       .sortBy(_.length)(implicitly[Ordering[Long]].reverse)
 
-    val partitions = FilePartition
-      .getFilePartitions(relation.sparkSession, splitFiles.toImmutableArraySeq, maxSplitBytes)
-
-    new FileScanRDD(
-      relation.sparkSession,
+    prepareRDD(
+      fsRelation,
       readFile,
-      partitions,
-      new StructType(requiredSchema.fields ++ relation.partitionSchema.fields),
-      fileConstantMetadataColumns,
-      relation.fileFormat.fileConstantMetadataExtractors,
-      new FileSourceOptions(CaseInsensitiveMap(relation.options)))
+      FilePartition.getFilePartitions(relation.sparkSession, splitFiles, maxSplitBytes))
   }
 
-//  private def prepareRDD(
-//      fsRelation: HadoopFsRelation,
-//      readFile: (PartitionedFile) => Iterator[InternalRow],
-//      partitions: Seq[FilePartition]): RDD[InternalRow] = {
-//    val hadoopConf = relation.sparkSession.sessionState.newHadoopConfWithOptions(relation.options)
-//    val prefetchEnabled = hadoopConf.getBoolean(
-//      CometConf.COMET_SCAN_PREFETCH_ENABLED.key,
-//      CometConf.COMET_SCAN_PREFETCH_ENABLED.defaultValue.get)
-//
-//    val sqlConf = fsRelation.sparkSession.sessionState.conf
-//    if (prefetchEnabled) {
-//      CometParquetFileFormat.populateConf(sqlConf, hadoopConf)
-//      val broadcastedConf =
-//        fsRelation.sparkSession.sparkContext.broadcast(new SerializableConfiguration(hadoopConf))
-//      val partitionReaderFactory = CometParquetPartitionReaderFactory(
-//        sqlConf,
-//        broadcastedConf,
-//        requiredSchema,
-//        relation.partitionSchema,
-//        pushedDownFilters.toArray,
-//        new ParquetOptions(CaseInsensitiveMap(relation.options), sqlConf),
-//        metrics)
-//
-//      new DataSourceRDD(
-//        fsRelation.sparkSession.sparkContext,
-//        partitions.map(Seq(_)),
-//        partitionReaderFactory,
-//        true,
-//        Map.empty)
-//    } else {
-//      newFileScanRDD(
-//        fsRelation,
-//        readFile,
-//        partitions,
-//        new StructType(requiredSchema.fields ++ fsRelation.partitionSchema.fields),
-//        new ParquetOptions(CaseInsensitiveMap(relation.options), sqlConf))
-//    }
-//  }
+  private def prepareRDD(
+      fsRelation: HadoopFsRelation,
+      readFile: (PartitionedFile) => Iterator[InternalRow],
+      partitions: Seq[FilePartition]): RDD[InternalRow] = {
+    val hadoopConf = relation.sparkSession.sessionState.newHadoopConfWithOptions(relation.options)
+    val prefetchEnabled = hadoopConf.getBoolean(
+      CometConf.COMET_SCAN_PREFETCH_ENABLED.key,
+      CometConf.COMET_SCAN_PREFETCH_ENABLED.defaultValue.get)
+
+    val sqlConf = fsRelation.sparkSession.sessionState.conf
+    if (prefetchEnabled) {
+      CometParquetFileFormat.populateConf(sqlConf, hadoopConf)
+      val broadcastedConf =
+        fsRelation.sparkSession.sparkContext.broadcast(new SerializableConfiguration(hadoopConf))
+      val partitionReaderFactory = CometParquetPartitionReaderFactory(
+        sqlConf,
+        broadcastedConf,
+        requiredSchema,
+        relation.partitionSchema,
+        pushedDownFilters.toArray,
+        new ParquetOptions(CaseInsensitiveMap(relation.options), sqlConf),
+        metrics)
+
+      new DataSourceRDD(
+        fsRelation.sparkSession.sparkContext,
+        partitions.map(Seq(_)),
+        partitionReaderFactory,
+        true,
+        Map.empty)
+    } else {
+      newFileScanRDD(
+        fsRelation,
+        readFile,
+        partitions,
+        new StructType(requiredSchema.fields ++ fsRelation.partitionSchema.fields),
+        new ParquetOptions(CaseInsensitiveMap(relation.options), sqlConf))
+    }
+  }
 
   // Filters unused DynamicPruningExpression expressions - one which has been replaced
   // with DynamicPruningExpression(Literal.TrueLiteral) during Physical Planning
@@ -482,5 +481,4 @@ object CometScanExec {
     scanExec.logicalLink.foreach(batchScanExec.setLogicalLink)
     batchScanExec
   }
-
 }

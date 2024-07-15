@@ -33,24 +33,24 @@ import org.apache.spark.sql.types.StructType
 trait ShimCometScanExec {
   def wrapped: FileSourceScanExec
 
-//  lazy val fileConstantMetadataColumns: Seq[AttributeReference] =
-//    wrapped.fileConstantMetadataColumns
+  lazy val fileConstantMetadataColumns: Seq[AttributeReference] =
+    wrapped.fileConstantMetadataColumns
 
-//  protected def newFileScanRDD(
-//      fsRelation: HadoopFsRelation,
-//      readFunction: PartitionedFile => Iterator[InternalRow],
-//      filePartitions: Seq[FilePartition],
-//      readSchema: StructType,
-//      options: ParquetOptions): FileScanRDD = {
-//    new FileScanRDD(
-//      fsRelation.sparkSession,
-//      readFunction,
-//      filePartitions,
-//      readSchema,
-//      fileConstantMetadataColumns,
-//      fsRelation.fileFormat.fileConstantMetadataExtractors,
-//      options)
-//  }
+  protected def newFileScanRDD(
+      fsRelation: HadoopFsRelation,
+      readFunction: PartitionedFile => Iterator[InternalRow],
+      filePartitions: Seq[FilePartition],
+      readSchema: StructType,
+      options: ParquetOptions): FileScanRDD = {
+    new FileScanRDD(
+      fsRelation.sparkSession,
+      readFunction,
+      filePartitions,
+      readSchema,
+      fileConstantMetadataColumns,
+      fsRelation.fileFormat.fileConstantMetadataExtractors,
+      options)
+  }
 
   protected def invalidBucketFile(path: String, sparkVersion: String): Throwable =
     QueryExecutionErrors.invalidBucketFile(path)
