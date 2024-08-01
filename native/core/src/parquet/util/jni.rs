@@ -93,7 +93,6 @@ pub fn convert_encoding(ordinal: jint) -> Encoding {
     }
 }
 
-#[derive(Debug)]
 pub struct TypePromotionInfo {
     pub(crate) physical_type: PhysicalType,
     pub(crate) precision: i32,
