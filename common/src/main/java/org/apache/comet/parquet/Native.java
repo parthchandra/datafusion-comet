@@ -234,4 +234,6 @@ public final class Native extends NativeBase {
    * @param handle the handle to the native Parquet column reader
    */
   public static native void closeColumnReader(long handle);
+
+  public static native long decimalToLong(long addr, int len);
 }

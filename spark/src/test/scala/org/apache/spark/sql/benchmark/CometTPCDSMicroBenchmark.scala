@@ -101,12 +101,20 @@ object CometTPCDSMicroBenchmark extends CometTPCQueryBenchmarkBase {
         case _ =>
       }
       val numRows = queryRelations.map(tableSizes.getOrElse(_, 0L)).sum
-      val benchmark = new Benchmark(benchmarkName, numRows, 2, output = output)
+      val benchmark = new Benchmark(benchmarkName, numRows, 10, output = output)
       benchmark.addCase(s"$name$nameSuffix") { _ =>
         cometSpark.sql(queryString).noop()
       }
+
       benchmark.addCase(s"$name$nameSuffix: Comet (Scan)") { _ =>
         withSQLConf(CometConf.COMET_ENABLED.key -> "true") {
+          cometSpark.sql(queryString).noop()
+        }
+      }
+      benchmark.addCase(s"$name$nameSuffix: Comet (Scan) Decimal 128 enabled ") { _ =>
+        withSQLConf(
+          CometConf.COMET_ENABLED.key -> "true",
+          CometConf.COMET_USE_DECIMAL_128.key -> "true") {
           cometSpark.sql(queryString).noop()
         }
       }

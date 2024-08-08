@@ -864,6 +864,8 @@ macro_rules! make_plain_decimal_int_impl {
 
                     let src_data = &src.data[src.offset..];
                     let dst_data = &mut dst.value_buffer[dst.num_values * $num_bytes..];
+                    // TODO: try using MaybeUninit
+                    // let dst_data = &mut MaybeUninit::<u8>::slice_assume_init_ref(dst.value_buffer[dst.num_values * $num_bytes..]);
 
                     let mut src_offset = 0;
 

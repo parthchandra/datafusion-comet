@@ -19,9 +19,12 @@
 
 package org.apache.comet.vector;
 
+import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.nio.Buffer;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 
 import org.apache.arrow.vector.FixedWidthVector;
 import org.apache.arrow.vector.ValueVector;
@@ -40,21 +43,34 @@ import org.apache.spark.sql.vectorized.ColumnarMap;
 import org.apache.spark.unsafe.Platform;
 import org.apache.spark.unsafe.types.UTF8String;
 
+import org.apache.comet.parquet.Native;
+
+import sun.misc.Unsafe;
+
 /** Base class for all Comet column vector implementations. */
 public abstract class CometVector extends ColumnVector {
-  private static final int DECIMAL_BYTE_WIDTH = 16;
+  protected static final int DECIMAL_BYTE_WIDTH = 16;
   private final byte[] DECIMAL_BYTES = new byte[DECIMAL_BYTE_WIDTH];
   private byte[] DECIMAL_BYTES_ALL;
   protected final boolean useDecimal128;
 
+  private static final Unsafe theUnsafe;
   private static final long decimalValOffset;
+  // Fields inside a ByteBuffer to allow converting a memory address to a DirectByteBuffer
+  private static final Field byteBufferAddress;
+  private static final Field byteBufferCapacity;
 
   static {
     try {
       java.lang.reflect.Field unsafeField = sun.misc.Unsafe.class.getDeclaredField("theUnsafe");
       unsafeField.setAccessible(true);
       final sun.misc.Unsafe unsafe = (sun.misc.Unsafe) unsafeField.get(null);
+      theUnsafe = unsafe;
       decimalValOffset = unsafe.objectFieldOffset(Decimal.class.getDeclaredField("decimalVal"));
+      byteBufferAddress = Buffer.class.getDeclaredField("address");
+      byteBufferAddress.setAccessible(true);
+      byteBufferCapacity = Buffer.class.getDeclaredField("capacity");
+      byteBufferCapacity.setAccessible(true);
     } catch (Throwable e) {
       throw new RuntimeException(e);
     }
@@ -91,7 +107,16 @@ public abstract class CometVector extends ColumnVector {
       return createDecimal(getInt(i), precision, scale);
     } else if (precision <= Decimal.MAX_LONG_DIGITS()) {
       if (useDecimal128) {
-        return createDecimal(getLongFromDecimalBytes(getBinaryDecimal(i)), precision, scale);
+        long val;
+//        if (this instanceof CometDictionaryVector) {
+//          val = getLongFromDecimalBytes(getBinaryDecimal(i));
+//        } else {
+//          long val0 = getLongFromDecimalBytes(getBinaryDecimal(i));
+//          val = getDecimalAsLong(i);
+          val = getLongDecimal(i);
+//        }
+        //        assert(val0 == val);
+        return createDecimal(val, precision, scale);
       } else {
         return createDecimal(getLong(i), precision, scale);
       }
@@ -121,13 +146,61 @@ public abstract class CometVector extends ColumnVector {
     return dec;
   }
 
+  // get Long value from the last eight bytes of input
+  // Using ByteBuffer's fast conversion to long
   // bytes.length must be 16
   public long getLongFromDecimalBytes(byte[] bytes) {
     assert (bytes.length == 16);
     // get Long value from the last eight bytes
     // Use ByteBuffer's fast conversion to long
+    //    System.out.println("DECIMAL_BYTES: " + Arrays.toString(bytes));
     long val = ByteBuffer.wrap(bytes).getLong(8);
+    //    System.out.println("DECIMAL_LONG: " + val);
     return val;
+  }
+
+  // get Long value from the last eight bytes of input
+  // Using unsafe to implement with zero copy
+  // Overridden by dictionary vector
+  protected long getDecimalAsLong(int i) {
+    // ByteBuffer buf = getDecimalAsByteBuf(getValueVector(), i);
+    ValueVector vector = getValueVector();
+    long bufferAddress = vector.getDataBuffer().memoryAddress();
+    long valueBufferAddress = bufferAddress + (long) i * DECIMAL_BYTE_WIDTH;
+    return Native.decimalToLong(valueBufferAddress, 8);
+  }
+
+  protected ByteBuffer getDecimalAsByteBuf(ValueVector vector, int i) {
+    long bufferAddress = vector.getDataBuffer().memoryAddress();
+    long valueBufferAddress = bufferAddress + (long) i * DECIMAL_BYTE_WIDTH;
+    //        byte[] ithBuffer = new byte[DECIMAL_BYTE_WIDTH];
+    //        Platform.copyMemory(
+    //                null,
+    //                valueBufferAddress,
+    //                ithBuffer,
+    //                Platform.BYTE_ARRAY_OFFSET,
+    //                DECIMAL_BYTE_WIDTH);
+
+    ByteBuffer buf = getByteBuffer(valueBufferAddress);
+    // Use only the first eight bytes
+    buf.limit(8);
+    // ByteBuffer buf = (ByteBuffer) Native.decimaltoLong(valueBufferAddress, 8);
+    return buf;
+  }
+
+  ByteBuffer getByteBuffer(long addr) {
+    try {
+      // allocate a zero byte DirectByteBuffer and replace the memory address and set the
+      // capacity. A better way is to use the JNI api to create a DirectByteBuffer
+      // in native code
+      // arrow buffers are LE, let DirectByteBuffer do the conversion
+      ByteBuffer bb = ByteBuffer.allocateDirect(0).order(ByteOrder.LITTLE_ENDIAN);
+      byteBufferAddress.setLong(bb, addr);
+      byteBufferCapacity.setInt(bb, 8);
+      return bb;
+    } catch (IllegalAccessException e) {
+      throw new RuntimeException(e);
+    }
   }
 
   /**
@@ -135,7 +208,6 @@ public abstract class CometVector extends ColumnVector {
    * array.
    */
   byte[] getBinaryDecimal(int i) {
-    // TODO: consider implementing a zero-copy version
     return copyBinaryDecimal(i, DECIMAL_BYTES);
   }
 
@@ -146,6 +218,9 @@ public abstract class CometVector extends ColumnVector {
       DECIMAL_BYTES_ALL = new byte[vector.getValueCount() * DECIMAL_BYTE_WIDTH];
       copyBuffer(vector, DECIMAL_BYTES_ALL);
     }
+    //    long valueBufferAddress =
+    //        vector.getDataBuffer().memoryAddress() + (long) i * DECIMAL_BYTE_WIDTH;
+    //    System.out.println("DECIMAL BUFFER ADDR: " + valueBufferAddress);
     // Decimal is stored little-endian in Arrow, so we need to reverse the bytes here
     System.arraycopy(DECIMAL_BYTES_ALL, i * DECIMAL_BYTE_WIDTH, dest, 0, DECIMAL_BYTE_WIDTH);
     for (int j = 0, k = DECIMAL_BYTE_WIDTH - 1; j < DECIMAL_BYTE_WIDTH / 2; j++, k--) {

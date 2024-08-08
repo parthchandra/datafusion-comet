@@ -560,6 +560,28 @@ pub extern "system" fn Java_org_apache_comet_parquet_Native_currentBatch(
     })
 }
 
+#[no_mangle]
+pub extern "system" fn Java_org_apache_comet_parquet_Native_decimalToLong(
+    e: JNIEnv,
+    _jclass: JClass,
+    addr: jlong,
+) -> jlong {
+    try_unwrap_or_throw(&e, |_env| {
+        // let b = addr as *mut u8;
+        // println!("ADDR: {:?} \n ADDR_P: {:?}", addr, addr as *mut u8);
+        let slice = unsafe { std::slice::from_raw_parts(addr as *mut u8, 8) };
+        // let slice_array: [u8; 8] = slice.try_into().unwrap();
+        // println!("SLICE_ARRAY: {:?}", slice_array);
+        //    let res = u64::from_le_bytes(slice.try_into().unwrap());
+        // println!("RES u: {:?}", res);
+        // println!("RES i: {:?}", res as i64);
+        //    Ok(res as i64)
+        // let direct_buffer = unsafe { env.new_direct_byte_buffer(addr as *mut u8, len as usize) }?;
+        // Ok(direct_buffer.as_raw())
+        Ok(u64::from_le_bytes(slice.try_into().unwrap()) as i64)
+    })
+}
+
 #[inline]
 fn get_context<'a>(handle: jlong) -> Result<&'a mut Context, CometError> {
     unsafe {

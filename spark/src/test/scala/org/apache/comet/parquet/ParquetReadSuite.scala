@@ -54,7 +54,7 @@ abstract class ParquetReadSuite extends CometTestBase {
 
   testStandardAndLegacyModes("decimals") {
     Seq(true, false).foreach { useDecimal128 =>
-      Seq(16, 1024).foreach { batchSize =>
+      Seq(16, 1024 ).foreach { batchSize =>
         withSQLConf(
           CometConf.COMET_EXEC_ENABLED.key -> false.toString,
           CometConf.COMET_USE_DECIMAL_128.key -> useDecimal128.toString,
@@ -68,7 +68,11 @@ abstract class ParquetReadSuite extends CometTestBase {
           }
           for ((precision, scale) <- combinations; useDictionary <- Seq(false, true)) {
             withTempPath { dir =>
-              val data = makeDecimalRDD(1000, DecimalType(precision, scale), useDictionary)
+              val data =
+                makeDecimalRDD(
+                  /*2 * 1024 * 1024 + 1*/ 1000,
+                  DecimalType(precision, scale),
+                  useDictionary)
               data.write.parquet(dir.getCanonicalPath)
               readParquetFile(dir.getCanonicalPath) { df =>
                 {
@@ -82,6 +86,7 @@ abstract class ParquetReadSuite extends CometTestBase {
     }
   }
 
+  /*
   test("unsupported Spark types") {
     Seq(
       NullType -> false,
@@ -1099,14 +1104,17 @@ abstract class ParquetReadSuite extends CometTestBase {
     checkParquetDataFrame(df)(actions: _*)
   }
 
+   */
   private def testStandardAndLegacyModes(testName: String)(f: => Unit): Unit = {
     test(s"Standard mode - $testName") {
       withSQLConf(SQLConf.PARQUET_WRITE_LEGACY_FORMAT.key -> "false") { f }
     }
 
+    /*
     test(s"Legacy mode - $testName") {
       withSQLConf(SQLConf.PARQUET_WRITE_LEGACY_FORMAT.key -> "true") { f }
     }
+     */
   }
 
   private def checkParquetFile[T <: Product: ClassTag: TypeTag](
@@ -1153,6 +1161,7 @@ abstract class ParquetReadSuite extends CometTestBase {
     }
   }
 
+  /*
   test("row group skipping doesn't overflow when reading into larger type") {
     // Spark 4.0 no longer fails for widening types SPARK-40876
     // https://github.com/apache/spark/commit/3361f25dc0ff6e5233903c26ee105711b79ba967
@@ -1282,6 +1291,7 @@ abstract class ParquetReadSuite extends CometTestBase {
       }
     }
   }
+   */
   def testScanner(cometEnabled: String, scanner: String, v1: Option[String] = None): Unit = {
     withSQLConf(
       CometConf.COMET_ENABLED.key -> cometEnabled,

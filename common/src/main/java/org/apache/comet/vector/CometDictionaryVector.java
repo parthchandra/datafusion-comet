@@ -19,9 +19,13 @@
 
 package org.apache.comet.vector;
 
+import java.nio.ByteBuffer;
+
 import org.apache.arrow.vector.IntVector;
+import org.apache.arrow.vector.ValueVector;
 import org.apache.arrow.vector.dictionary.DictionaryProvider;
 import org.apache.arrow.vector.util.TransferPair;
+import org.apache.comet.parquet.Native;
 import org.apache.parquet.Preconditions;
 import org.apache.spark.unsafe.types.UTF8String;
 
@@ -137,5 +141,15 @@ public class CometDictionaryVector extends CometDecodedVector {
     // Otherwise, if the dictionary is closed, the sliced vector will not be able to access the
     // dictionary.
     return new CometDictionaryVector(sliced, values, provider, useDecimal128, true, isUuid);
+  }
+
+  protected long getDecimalAsLong(int i) {
+//    ByteBuffer buf = getDecimalAsByteBuf(values.getValueVector(), i);
+//    long val = buf.getLong();
+//    return val;
+    ValueVector vector = values.getValueVector();
+    long bufferAddress = vector.getDataBuffer().memoryAddress();
+    long valueBufferAddress = bufferAddress + (long) indices.getInt(i) * DECIMAL_BYTE_WIDTH;
+    return Native.decimalToLong(valueBufferAddress, 8);
   }
 }
