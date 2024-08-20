@@ -1012,8 +1012,12 @@ class CometSparkSessionExtensions
   case class EliminateRedundantTransitions(session: SparkSession) extends Rule[SparkPlan] {
     override def apply(plan: SparkPlan): SparkPlan = {
       val eliminatedPlan = plan transformUp {
-        case ColumnarToRowExec(sparkToColumnar: CometSparkToColumnarExec) => sparkToColumnar.child
-        case CometSparkToColumnarExec(child: CometSparkToColumnarExec) => child
+        case CometColumnarToRowExec(sparkToColumnar: CometSparkToColumnarExec)
+            if !sparkToColumnar.child.supportsColumnar =>
+          sparkToColumnar.child
+        case ColumnarToRowExec(sparkToColumnar: CometSparkToColumnarExec)
+            if !sparkToColumnar.child.supportsColumnar =>
+          sparkToColumnar.child        case CometSparkToColumnarExec(child: CometSparkToColumnarExec) => child
         // Spark adds `RowToColumnar` under Comet columnar shuffle. But it's redundant as the
         // shuffle takes row-based input.
         case s @ CometShuffleExchangeExec(
@@ -1027,6 +1031,8 @@ class CometSparkSessionExtensions
       }
 
       eliminatedPlan match {
+        case CometColumnarToRowExec(child: CometCollectLimitExec) =>
+          child
         case ColumnarToRowExec(child: CometCollectLimitExec) =>
           child
         case other =>
