@@ -86,9 +86,11 @@ RUN echo "Building without MacOS"
 FROM with-macos-sdk-${HAS_MACOS_SDK} AS final
 
 ARG ARCH
+ARG REPO
+ARG BRANCH
 
 #RUN mkdir -p  /opt/comet-rm/output
 COPY build-comet-native-libs.sh /opt/comet-rm/build-comet-native-libs.sh
 WORKDIR /opt/comet-rm
 
-ENTRYPOINT [ "/opt/comet-rm/build-comet-native-libs.sh", "${ARCH}"]
+ENTRYPOINT [ "/opt/comet-rm/build-comet-native-libs.sh", "${REPO}", "${BRANCH}", "${ARCH}"]

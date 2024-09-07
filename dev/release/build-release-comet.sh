@@ -30,18 +30,24 @@ This script builds comet native binaries inside a docker image. The image is nam
 
 Options are:
 
+  -r [repo]   : git repo
+  -b [branch] : git branch
   -x          : XCode sdk file name
   -t [tag]    : tag for the spark-rm docker image to use for building (default: "latest").
 EOF
 exit 1
 }
 
+REPO="https://github.com/apache/datafusion-comet.git"
+BRANCH="release"
 MACOS_SDK=
 HAS_MACOS_SDK="false"
 IMGTAG=latest
 
-while getopts "ht:x:" opt; do
+while getopts "b:hr:t:x:" opt; do
   case $opt in
+    r) REPO="$OPTARG";;
+    b) BRANCH="$OPTARG";;
     x) MACOS_SDK="$OPTARG" ;;
     t) IMGTAG="$OPTARG" ;;
     h) usage ;;
@@ -96,9 +102,7 @@ docker run \
    --rm \
    --platform linux/amd64 \
    -v $WORKING_DIR:/opt/host_workdir \
-   $BUILDER_IMAGE
-#   amd64
-
+   $BUILDER_IMAGE ${REPO} ${BRANCH} amd64
 
 # ARM64
 docker run \
@@ -108,8 +112,7 @@ docker run \
    --rm \
    --platform linux/arm64 \
    -v $WORKING_DIR:/mnt/host_workdir \
-   $BUILDER_IMAGE
-#   arm64
+   $BUILDER_IMAGE ${REPO} ${BRANCH} arm64
 
 cp -R $WORKING_DIR/output/common $SCRIPT_DIR/../../
 

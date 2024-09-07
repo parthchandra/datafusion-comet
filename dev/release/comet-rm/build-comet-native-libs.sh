@@ -19,21 +19,36 @@
 #
 
 # builds a comet binary
-ARCH=$1
+REPO=$1
+BRANCH=$2
+ARCH=$3
+
+function usage {
+  local NAME=$(basename $0)
+  echo "Usage: ${NAME} [git repo] [branch] [arm64 | amd64]"
+  exit 1
+}
+
+if [ $# -ne 3 ]
+then
+  usage
+fi
+
 if [ "$ARCH" != "arm64" ] && [ "$ARCH" != "amd64" ]
 then
-  local NAME=$(basename $0)
-  echo "Usage: ${NAME} [arm64 | amd64] "
-  exit 1
+  usage
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null && pwd)"
 
 rm -fr comet
-git clone https://github.com/parthchandra/datafusion-comet.git comet
+#git clone https://github.com/parthchandra/datafusion-comet.git comet
+git clone https://github.com:parthchandra/datafusion-comet.git comet
 
 # build comet binaries
 cd comet
+git checkout binary-build
+
 make  core-${1}-libs
 
 # copy libs to /opt/host_workdir/output
