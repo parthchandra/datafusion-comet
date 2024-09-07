@@ -19,14 +19,48 @@
 #
 
 # builds a comet binary
+ARCH=$1
+if [ "$ARCH" != "arm64" ] && [ "$ARCH" != "amd64" ]
+then
+  local NAME=$(basename $0)
+  echo "Usage: ${NAME} [arm64 | amd64] "
+  exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null && pwd)"
 
-git clone https://github.com/apache/datafusion-comet.git comet
+rm -fr comet
+git clone https://github.com/parthchandra/datafusion-comet.git comet
 
+# build comet binaries
 cd comet
+make  core-${1}-libs
 
-make core-${1}-libs
+# copy libs to /opt/host_workdir/output
+OUTPUT_DIR="/opt/host_workdir/output"
 
-# copy libs to /mnt/workdir/output
+declare -A OUTPUT_LIBS
 
+if [ "$ARCH" == "arm64" ]
+then
+   OUTPUT_LIBS=(\
+    ["native/target/aarch64-apple-darwin/release/libcomet.dylib"]="$OUTPUT_DIR/common/target/classes/org/apache/comet/darwin/aarch64" \
+    ["native/target/release/libcomet.so"]="$OUTPUT_DIR/common/target/classes/org/apache/comet/linux/aarch64" \
+  )
+else
+  OUTPUT_LIBS=(\
+    ["native/target/x86_64-apple-darwin/release/libcomet.dylib"]="$OUTPUT_DIR/common/target/classes/org/apache/comet/darwin/x86_64" \
+    ["native/target/release/libcomet.so"]="$OUTPUT_DIR/common/target/classes/org/apache/comet/linux/amd64" \
+  )
+fi
 
+for SRC_LIB in ${!OUTPUT_LIBS[@]}
+do
+  TARGET_DIR=${OUTPUT_LIBS[${SRC_LIB}]}
+  if [ -f "$SRC_LIB" ]
+  then
+    mkdir -p "$TARGET_DIR"
+    echo "Copying $SRC_LIB to $TARGET_DIR"
+    cp "$SRC_LIB" "$TARGET_DIR"
+  fi
+done

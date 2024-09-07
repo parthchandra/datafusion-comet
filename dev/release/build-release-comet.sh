@@ -30,20 +30,18 @@ This script builds comet native binaries inside a docker image. The image is nam
 
 Options are:
 
-  -d [path]   : working directory (copy the XCode sdk to this directory)
   -x          : XCode sdk file name
   -t [tag]    : tag for the spark-rm docker image to use for building (default: "latest").
 EOF
+exit 1
 }
 
-MACOS_SDK_DIR=
 MACOS_SDK=
 HAS_MACOS_SDK="false"
 IMGTAG=latest
 
-while getopts "d:ht:" opt; do
+while getopts "ht:x:" opt; do
   case $opt in
-    d) MACOS_SDK_DIR="$OPTARG" ;;
     x) MACOS_SDK="$OPTARG" ;;
     t) IMGTAG="$OPTARG" ;;
     h) usage ;;
@@ -51,95 +49,70 @@ while getopts "d:ht:" opt; do
   esac
 done
 
-#docker buildx create --use --name cometbuild node-amd64
-#docker buildx create --append --name cometbuild node-arm64
+WORKING_DIR="$SCRIPT_DIR/comet-rm/workdir"
+cp $SCRIPT_DIR/../cargo.config $WORKING_DIR
 
+# TODO: Search for Xcode
+#PS3="Select Xcode:"
+#select xcode_path in  `find . -name "Xcode*.xip"`
+#do
+#  echo "found Xcode in $xcode_path"
+#  cp $xcode_path $WORKING_DIR
+#  break
+#done
+
+if [ -f "${WORKING_DIR}/${MACOS_SDK}" ]
+then
+  HAS_MACOS_SDK="true"
+fi
+
+# Create docker builder context
 docker buildx create \
   --name comet-builder \
   --driver docker-container \
   --use --bootstrap
 
-if [ -f "${MACOS_SDK_DIR}/${MACOS_SDK}" ]
-then
-  HAS_MACOS_SDK="true"
-fi
+# Build the docker image in which we will do the build
 docker buildx build \
-  --no-cache \
   --platform linux/amd64,linux/arm64 \
   -t "comet-rm:$IMGTAG" \
-  --build-arg UID=$UID \
   --build-arg HAS_MACOS_SDK=${HAS_MACOS_SDK} \
-  --build-arg MACOS_SDK_DIR=${MACOS_SDK_DIR} \
   --build-arg MACOS_SDK=${MACOS_SDK} \
   --load \
   "$SCRIPT_DIR/comet-rm"
 
   # remove the builder
 docker buildx rm --keep-state comet-builder
-#docker build \
-#  --no-cache \
-#  --platform linux/amd64,linux/arm64 \
-#  -t "comet-rm:$IMGTAG" \
-#  --build-arg UID=$UID \
-#  --build-arg HAS_MACOS_SDK=${HAS_MACOS_SDK} \
-#  --build-arg MACOS_SDK_DIR=${MACOS_SDK_DIR} \
-#  --build-arg MACOS_SDK=${MACOS_SDK} \
-#  "$SCRIPT_DIR/comet-rm"
 
-#docker build \
-#  --no-cache \
-#  --platform linux/arm64 \
-#  -t "comet-rm:$IMGTAG" \
-#  --build-arg UID=$UID \
-#  --build-arg HAS_MACOS_SDK=${HAS_MACOS_SDK} \
-#  --build-arg MACOS_SDK_DIR=${MACOS_SDK_DIR} \
-#  --build-arg MACOS_SDK=${MACOS_SDK} \
-#  "$SCRIPT_DIR/comet-rm"
-#
-#docker build \
-#  --no-cache \
-#  --platform linux/amd64 \
-#  -t "comet-rm:$IMGTAG" \
-#  --build-arg UID=$UID \
-#  --build-arg HAS_MACOS_SDK=${HAS_MACOS_SDK} \
-#  --build-arg MACOS_SDK_DIR=${MACOS_SDK_DIR} \
-#  --build-arg MACOS_SDK=${MACOS_SDK} \
-#  "$SCRIPT_DIR/comet-rm"
+BUILDER_IMAGE="comet-rm:$IMGTAG"
 
-BUILDER_IMAGE=${BUILDER_IMAGE:='comet-rm:$IMGTAG'}
+# Run the builder container for each architecture . The entrypoint script will build the binaries and copy them to $WORKING_DIR/output
 
-#docker pull --platform linux/amd64 ${BUILDER_IMAGE}
-#docker pull --platform linux/arm64 ${BUILDER_IMAGE}
+# AMD64
+docker run \
+   --memory 24g \
+   --cpus 6 \
+   -it \
+   --rm \
+   --platform linux/amd64 \
+   -v $WORKING_DIR:/opt/host_workdir \
+   $BUILDER_IMAGE
+#   amd64
 
-# docker run \
-#    --memory 16g \
-#    --cpus 6 \
-#    -it \
-#    --rm \
-#    --platform linux/amd64 \
-#    -v $WORKDIR:/mnt/workdir \
-#    $BUILDER_IMAGE /bin/bash
 
-# docker run \
-#    --memory 16g \
-#    --cpus 6 \
-#    -it \
-#    --rm \
-#    --platform linux/arm64 \
-#    -v $WORKDIR:/mnt/workdir \
-#    $BUILDER_IMAGE /bin/bash
+# ARM64
+docker run \
+   --memory 24g \
+   --cpus 6 \
+   -it \
+   --rm \
+   --platform linux/arm64 \
+   -v $WORKING_DIR:/mnt/host_workdir \
+   $BUILDER_IMAGE
+#   arm64
 
-#docker run \
-#   --memory 16g \
-#   --cpus 6 \
-#   -it \
-#   --rm \
-#   --platform linux/aarch64 \
-#   -e APPLECONNECT_USER=${APPLECONNECT_USER} \
-#   -e ARTIFACTORY_API_KEY=${ARTIFACTORY_API_KEY} \
-#   -v ~/work/apple-parquet-mr:/mnt/parquet-mr \
-#   -v ~/work/boson:/mnt/boson \
-#   -v ~/work/spark/apache-spark:/mnt/spark \
-#   -v ~/work/iceberg:/mnt/iceberg \
-#   -v ~/work/spark/spark-perf:/mnt/spark-perf \
-#   $BUILDER_IMAGE
+cp -R $WORKING_DIR/output/common $SCRIPT_DIR/../../
+
+cd $SCRIPT_DIR/../..
+./mvnw package
+
