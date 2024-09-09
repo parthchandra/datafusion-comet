@@ -131,6 +131,13 @@ GH_TOKEN=<TOKEN> ./dev/release/create-tarball.sh 0.1.0 1
 ```
 
 ### Publish the maven artifacts
+#### Setup maven
+##### One time project setup
+Setting up your project in the ASF Nexus Repository from here: https://infra.apache.org/publishing-maven-artifacts.html
+##### Release Manager Setup
+Set up your development environment from here:  https://infra.apache.org/publishing-maven-artifacts.html
+
+
 ```shell
 ./mvnw deploy
 ```

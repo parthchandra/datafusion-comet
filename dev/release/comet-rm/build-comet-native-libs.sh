@@ -41,41 +41,56 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null && pwd)"
 
+echo "Building architecture: ${ARCH} for ${REPO}/${BRANCH}"
 rm -fr comet
-#git clone https://github.com/parthchandra/datafusion-comet.git comet
-git clone https://github.com:parthchandra/datafusion-comet.git comet
+git clone "$REPO" comet
+cd comet
+git checkout "$BRANCH"
 
 # build comet binaries
-cd comet
-git checkout binary-build
 
-make  core-${1}-libs
+# make  core-${ARCH}-libs
+
+mkdir -p native/target/release
+touch native/target/release/libcomet.so
 
 # copy libs to /opt/host_workdir/output
-OUTPUT_DIR="/opt/host_workdir/output"
+#OUTPUT_DIR="/opt/host_workdir/output"
+mkdir -p /opt/outdir
 
-declare -A OUTPUT_LIBS
+declare OUTPUT_LIBS
 
 if [ "$ARCH" == "arm64" ]
 then
-   OUTPUT_LIBS=(\
-    ["native/target/aarch64-apple-darwin/release/libcomet.dylib"]="$OUTPUT_DIR/common/target/classes/org/apache/comet/darwin/aarch64" \
-    ["native/target/release/libcomet.so"]="$OUTPUT_DIR/common/target/classes/org/apache/comet/linux/aarch64" \
+  echo "ARM64"
+#  OUTPUT_LIBS=(\
+#    ["native/target/aarch64-apple-darwin/release/libcomet.dylib"]="$OUTPUT_DIR/darwin/aarch64" \
+#    ["native/target/release/libcomet.so"]="$OUTPUT_DIR/linux/aarch64" \
+#  )
+  OUTPUT_LIBS=(\
+    "native/target/aarch64-apple-darwin/release/libcomet.dylib" \
+    "native/target/release/libcomet.so"
   )
 else
+  echo "AMD64"
+#  OUTPUT_LIBS=(\
+#    ["native/target/x86_64-apple-darwin/release/libcomet.dylib"]="$OUTPUT_DIR/darwin/x86_64" \
+#    ["native/target/release/libcomet.so"]="$OUTPUT_DIR/linux/amd64" \
   OUTPUT_LIBS=(\
-    ["native/target/x86_64-apple-darwin/release/libcomet.dylib"]="$OUTPUT_DIR/common/target/classes/org/apache/comet/darwin/x86_64" \
-    ["native/target/release/libcomet.so"]="$OUTPUT_DIR/common/target/classes/org/apache/comet/linux/amd64" \
+    "native/target/x86_64-apple-darwin/release/libcomet.dylib" \
+    "native/target/release/libcomet.so"
   )
 fi
 
 for SRC_LIB in ${!OUTPUT_LIBS[@]}
 do
-  TARGET_DIR=${OUTPUT_LIBS[${SRC_LIB}]}
+#  TARGET_DIR=${OUTPUT_LIBS[${SRC_LIB}]}
   if [ -f "$SRC_LIB" ]
   then
-    mkdir -p "$TARGET_DIR"
-    echo "Copying $SRC_LIB to $TARGET_DIR"
-    cp "$SRC_LIB" "$TARGET_DIR"
+#    mkdir -p "$TARGET_DIR"
+#    echo "Copying $SRC_LIB to $TARGET_DIR"
+#    cp "$SRC_LIB" "$TARGET_DIR"
+    echo "Copying $SRC_LIB to /opt/output"
+    cp "$SRC_LIB" "/opt/output"
   fi
 done

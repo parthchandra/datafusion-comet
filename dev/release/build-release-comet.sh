@@ -38,6 +38,23 @@ EOF
 exit 1
 }
 
+function cleanup()
+{
+  if [ $CLEANUP != 0 ]
+  then
+    echo Cleaning up ...
+#    docker rm comet-arm64-builder-container
+#    docker rm comet-amd64-builder-container
+    docker buildx rm --keep-state comet-builder
+    CLEANUP=0
+  fi
+#  exit
+}
+
+trap cleanup SIGINT SIGTERM EXIT
+
+CLEANUP=1
+
 REPO="https://github.com/apache/datafusion-comet.git"
 BRANCH="release"
 MACOS_SDK=
@@ -54,6 +71,8 @@ while getopts "b:hr:t:x:" opt; do
     \?) error "Invalid option. Run with -h for help." ;;
   esac
 done
+
+echo "Building binaries from $REPO/$BRANCH"
 
 WORKING_DIR="$SCRIPT_DIR/comet-rm/workdir"
 cp $SCRIPT_DIR/../cargo.config $WORKING_DIR
@@ -79,15 +98,15 @@ docker buildx create \
   --use --bootstrap
 
 # Build the docker image in which we will do the build
-docker buildx build \
-  --platform linux/amd64,linux/arm64 \
-  -t "comet-rm:$IMGTAG" \
-  --build-arg HAS_MACOS_SDK=${HAS_MACOS_SDK} \
-  --build-arg MACOS_SDK=${MACOS_SDK} \
-  --load \
-  "$SCRIPT_DIR/comet-rm"
+#docker buildx build \
+#  --platform linux/amd64,linux/arm64 \
+#  -t "comet-rm:$IMGTAG" \
+#  --build-arg HAS_MACOS_SDK=${HAS_MACOS_SDK} \
+#  --build-arg MACOS_SDK=${MACOS_SDK} \
+#  --load \
+#  "$SCRIPT_DIR/comet-rm"
 
-  # remove the builder
+# remove the builder
 docker buildx rm --keep-state comet-builder
 
 BUILDER_IMAGE="comet-rm:$IMGTAG"
@@ -95,27 +114,58 @@ BUILDER_IMAGE="comet-rm:$IMGTAG"
 # Run the builder container for each architecture . The entrypoint script will build the binaries and copy them to $WORKING_DIR/output
 
 # AMD64
-docker run \
-   --memory 24g \
-   --cpus 6 \
-   -it \
-   --rm \
-   --platform linux/amd64 \
-   -v $WORKING_DIR:/opt/host_workdir \
-   $BUILDER_IMAGE ${REPO} ${BRANCH} amd64
+#echo "Building amd64 binary"
+#docker run \
+#   --memory 24g \
+#   --cpus 6 \
+#   -it \
+#   --rm \
+#   --platform linux/amd64 \
+#   -v $WORKING_DIR/amd64:/opt/host_workdir \
+#   $BUILDER_IMAGE "${REPO}" "${BRANCH}" amd64
 
 # ARM64
+echo "Building arm64 binary"
+docker rm comet-arm64-builder-container
 docker run \
+   --name comet-arm64-builder-container \
    --memory 24g \
    --cpus 6 \
    -it \
-   --rm \
    --platform linux/arm64 \
-   -v $WORKING_DIR:/mnt/host_workdir \
-   $BUILDER_IMAGE ${REPO} ${BRANCH} arm64
+   $BUILDER_IMAGE "${REPO}" "${BRANCH}" arm64
+docker cp comet-arm64-builder-container:/opt/output/libcomet.dylib $WORKING_DIR/arm64
+docker cp comet-arm64-builder-container:/opt/output/libcomet.so $WORKING_DIR/arm64
+docker cp comet-arm64-builder-container:"/opt/comet-rm/comet/native/target/release/libcomet.so" $WORKING_DIR/arm64
+#docker rm comet-arm64-builder-container
 
-cp -R $WORKING_DIR/output/common $SCRIPT_DIR/../../
+echo "Building binaries completed"
+echo "Copying to java build directories"
+JVM_TARGET_DIR=$SCRIPT_DIR/../../common/target/classes/org/apache/comet
+mkdir -p $JVM_TARGET_DIR
 
+if [ -f "${WORKING_DIR}/arm64/libcomet.dylib" ]
+then
+  cp "${WORKING_DIR}/arm64/libcomet.dylib" $JVM_TARGET_DIR/darwin/aarch64
+fi
+if [ -f "${WORKING_DIR}/arm64/libcomet.so" ]
+then
+  cp "${WORKING_DIR}/arm64/libcomet.so" $JVM_TARGET_DIR/linux/aarch64
+fi
+if [ -f "${WORKING_DIR}/amd64/libcomet.dylib" ]
+then
+  cp "${WORKING_DIR}/amd64/libcomet.dylib" $JVM_TARGET_DIR/darwin/amd64
+fi
+if [ -f "${WORKING_DIR}/amd64/libcomet.so" ]
+then
+  cp "${WORKING_DIR}/amd64/libcomet.so" $JVM_TARGET_DIR/linux/amd64
+fi
+
+#cp -R $WORKING_DIR/arm64/output/* $JVM_TARGET_DIR
+#cp -R $WORKING_DIR/amd64/output/* $JVM_TARGET_DIR
+
+# Build final jar
+echo "Building uber jar"
 cd $SCRIPT_DIR/../..
-./mvnw package
+#./mvnw package -DskipTests
 
