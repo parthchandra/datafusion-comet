@@ -43,8 +43,8 @@ function cleanup()
   if [ $CLEANUP != 0 ]
   then
     echo Cleaning up ...
-#    docker rm comet-arm64-builder-container
-#    docker rm comet-amd64-builder-container
+    docker rm comet-arm64-builder-container
+    docker rm comet-amd64-builder-container
     docker buildx rm --keep-state comet-builder
     CLEANUP=0
   fi
@@ -77,9 +77,9 @@ echo "Building binaries from $REPO/$BRANCH"
 WORKING_DIR="$SCRIPT_DIR/comet-rm/workdir"
 cp $SCRIPT_DIR/../cargo.config $WORKING_DIR
 
-# TODO: Search for Xcode
+# TODO: Search for Xcode (Once building macos binaries works)
 #PS3="Select Xcode:"
-#select xcode_path in  `find . -name "Xcode*.xip"`
+#select xcode_path in  `find . -name "${MACOS_SDK}"`
 #do
 #  echo "found Xcode in $xcode_path"
 #  cp $xcode_path $WORKING_DIR
@@ -98,35 +98,30 @@ docker buildx create \
   --use --bootstrap
 
 # Build the docker image in which we will do the build
-#docker buildx build \
-#  --platform linux/amd64,linux/arm64 \
-#  -t "comet-rm:$IMGTAG" \
-#  --build-arg HAS_MACOS_SDK=${HAS_MACOS_SDK} \
-#  --build-arg MACOS_SDK=${MACOS_SDK} \
-#  --load \
-#  "$SCRIPT_DIR/comet-rm"
-
-# remove the builder
-docker buildx rm --keep-state comet-builder
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -t "comet-rm:$IMGTAG" \
+  --build-arg HAS_MACOS_SDK=${HAS_MACOS_SDK} \
+  --build-arg MACOS_SDK=${MACOS_SDK} \
+  --load \
+  "$SCRIPT_DIR/comet-rm"
 
 BUILDER_IMAGE="comet-rm:$IMGTAG"
 
-# Run the builder container for each architecture . The entrypoint script will build the binaries and copy them to $WORKING_DIR/output
+# Run the builder container for each architecture. The entrypoint script will build the binaries
 
 # AMD64
-#echo "Building amd64 binary"
-#docker run \
-#   --memory 24g \
-#   --cpus 6 \
-#   -it \
-#   --rm \
-#   --platform linux/amd64 \
-#   -v $WORKING_DIR/amd64:/opt/host_workdir \
-#   $BUILDER_IMAGE "${REPO}" "${BRANCH}" amd64
+echo "Building amd64 binary"
+docker run \
+   --name comet-amd64-builder-container \
+   --memory 24g \
+   --cpus 6 \
+   -it \
+   --platform linux/amd64 \
+   $BUILDER_IMAGE "${REPO}" "${BRANCH}" amd64
 
 # ARM64
 echo "Building arm64 binary"
-docker rm comet-arm64-builder-container
 docker run \
    --name comet-arm64-builder-container \
    --memory 24g \
@@ -134,38 +129,40 @@ docker run \
    -it \
    --platform linux/arm64 \
    $BUILDER_IMAGE "${REPO}" "${BRANCH}" arm64
-docker cp comet-arm64-builder-container:/opt/output/libcomet.dylib $WORKING_DIR/arm64
-docker cp comet-arm64-builder-container:/opt/output/libcomet.so $WORKING_DIR/arm64
-docker cp comet-arm64-builder-container:"/opt/comet-rm/comet/native/target/release/libcomet.so" $WORKING_DIR/arm64
-#docker rm comet-arm64-builder-container
 
 echo "Building binaries completed"
 echo "Copying to java build directories"
+
 JVM_TARGET_DIR=$SCRIPT_DIR/../../common/target/classes/org/apache/comet
 mkdir -p $JVM_TARGET_DIR
 
-if [ -f "${WORKING_DIR}/arm64/libcomet.dylib" ]
+mkdir -p $JVM_TARGET_DIR/linux/amd64
+docker cp \
+  comet-amd64-builder-container:"/opt/comet-rm/comet/native/target/release/libcomet.so" \
+  $JVM_TARGET_DIR/linux/amd64/
+
+if [ "$HAS_MACOS_SDK" == "true" ]
 then
-  cp "${WORKING_DIR}/arm64/libcomet.dylib" $JVM_TARGET_DIR/darwin/aarch64
-fi
-if [ -f "${WORKING_DIR}/arm64/libcomet.so" ]
-then
-  cp "${WORKING_DIR}/arm64/libcomet.so" $JVM_TARGET_DIR/linux/aarch64
-fi
-if [ -f "${WORKING_DIR}/amd64/libcomet.dylib" ]
-then
-  cp "${WORKING_DIR}/amd64/libcomet.dylib" $JVM_TARGET_DIR/darwin/amd64
-fi
-if [ -f "${WORKING_DIR}/amd64/libcomet.so" ]
-then
-  cp "${WORKING_DIR}/amd64/libcomet.so" $JVM_TARGET_DIR/linux/amd64
+  mkdir -p $JVM_TARGET_DIR/darwin/x86_64
+  docker cp \
+    comet-amd64-builder-container:"/opt/comet-rm/comet/native/target/x86_64-apple-darwin/release/libcomet.dylib" \
+    $JVM_TARGET_DIR/darwin/x86_64/
 fi
 
-#cp -R $WORKING_DIR/arm64/output/* $JVM_TARGET_DIR
-#cp -R $WORKING_DIR/amd64/output/* $JVM_TARGET_DIR
+mkdir -p $JVM_TARGET_DIR/linux/aarch64
+docker cp \
+  comet-arm64-builder-container:"/opt/comet-rm/comet/native/target/release/libcomet.so" \
+  $JVM_TARGET_DIR/linux/aarch64/
+
+if [ "$HAS_MACOS_SDK" == "true" ]
+then
+  mkdir -p $JVM_TARGET_DIR/linux/aarch64
+  docker cp \
+    comet-arm64-builder-container:"/opt/comet-rm/comet/native/target/aarch64-apple-darwin/release/libcomet.dylib" \
+    $JVM_TARGET_DIR/darwin/aarch64/
+fi
 
 # Build final jar
 echo "Building uber jar"
 cd $SCRIPT_DIR/../..
-#./mvnw package -DskipTests
-
+./mvnw package -DskipTests
