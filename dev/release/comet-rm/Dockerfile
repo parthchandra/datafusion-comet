@@ -57,16 +57,16 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 #RUN rustup install nightly && cargo +nightly install cargo2junit
 RUN cargo install cargo2junit
 
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y pip \
+    && pip install cargo-zigbuild
+
+
 # Stage to add OSXCross if MacOSSDK is provided
 FROM base AS with-macos-sdk-true
 ARG MACOS_SDK
 
 COPY workdir/$MACOS_SDK /opt/xcode/
-
-RUN export LC_ALL=C \
-    && apt-get update \
-    && apt-get install --no-install-recommends -y pip \
-    && pip install cargo-zigbuild
 
 RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
     rustup target add aarch64-apple-darwin; \
