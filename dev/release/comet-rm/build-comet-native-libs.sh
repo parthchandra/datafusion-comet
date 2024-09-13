@@ -49,4 +49,4 @@ git checkout "$BRANCH"
 
 # build comet binaries
 
-make core-zig-libs
+make core-cross-libs

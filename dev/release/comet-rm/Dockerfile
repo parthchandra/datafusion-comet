@@ -57,9 +57,9 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 #RUN rustup install nightly && cargo +nightly install cargo2junit
 RUN cargo install cargo2junit
 
-RUN apt-get update \
-    && apt-get install --no-install-recommends -y pip \
-    && pip install cargo-zigbuild
+#RUN apt-get update \
+#    && apt-get install --no-install-recommends -y pip \
+#    && pip install cargo-zigbuild
 
 RUN rustup target add x86_64-unknown-linux-gnu \
 	&& rustup target add aarch64-unknown-linux-gnu

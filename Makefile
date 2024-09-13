@@ -47,40 +47,14 @@ format:
 	./mvnw spotless:apply $(PROFILES)
 
 # build native libs for amd64 architecture Linux/MacOS on a Linux/amd64 machine/container
-core-zig-libs:
+core-cross-libs:
 	# if the environment variable HAS_OSXCROSS is defined
 ifdef $(HAS_OSXCROSS)
 	cd native && cargo zigbuild -j 1 --target aarch64-apple-darwin --release
 	cd native && cargo zigbuild -j 1 --target x86_64-apple-darwin --release
 endif
-	cd native && cargo zigbuild -j 1 --target x86_64-unknown-linux-gnu.2.27 --release
-	cd native && cargo zigbuild -j 1 --target aarch64-unknown-linux-gnu.2.27 --release
-
-# build native libs for arm64 architecture Linux/MacOS on a Linux/arm64 machine/container
-core-arm64-libs:
-	# if the environment variable HAS_OSXCROSS is defined
-ifdef $(HAS_OSXCROSS)
-	cd native && cargo zigbuild -j 1 --target aarch64-apple-darwin --release
-endif
-	cd native && cargo build -j 1 --release
-
-# build native libs for amd64 architecture Linux/MacOS on a Linux/amd64 machine/container
-core-amd64-libs:
-	rustup target add x86_64-apple-darwin
-	# if the environment variable HAS_OSXCROSS is defined
-ifdef $(HAS_OSXCROSS)
-	cd native && cargo zigbuild -j 1 --target x86_64-apple-darwin --release
-endif
-	cd native && cargo build -j 1 --release
-
-# build native libs for arm64 architecture Linux/MacOS on a Linux/arm64 machine/container
-core-arm64-libs:
-	rustup target add aarch64-apple-darwin
-	# if the environment variable HAS_OSXCROSS is defined
-ifdef $(HAS_OSXCROSS)
-	cd native && cargo zigbuild -j 1 --target aarch64-apple-darwin --release
-endif
-	cd native && cargo build -j 1 --release
+	cd native && cargo build -j 1 --target x86_64-unknown-linux-gnu --release
+	cd native && cargo build -j 1 --target aarch64-unknown-linux-gnu --release
 
 core-amd64:
 	rustup target add x86_64-apple-darwin
