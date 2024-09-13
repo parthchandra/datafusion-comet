@@ -83,15 +83,22 @@ WORKING_DIR="$SCRIPT_DIR/comet-rm/workdir"
 cp $SCRIPT_DIR/../cargo.config $WORKING_DIR
 
 # TODO: Search for Xcode (Once building macos binaries works)
-#PS3="Select Xcode:"
-#select xcode_path in  `find . -name "${MACOS_SDK}"`
-#do
-#  echo "found Xcode in $xcode_path"
-#  cp $xcode_path $WORKING_DIR
-#  break
-#done
+function findXcode() {
+  START_DIR=${1:-"."}
 
-if [ -f "${WORKING_DIR}/${MACOS_SDK}" ]
+PS3="Select Xcode:"
+select xcode_path in  `find $START_DIR -name "Xcode*"`
+do
+  echo "found Xcode in $xcode_path"
+  cp $xcode_path $WORKING_DIR
+  break
+done
+
+[[ ${xcode_path} =~ Xcode_([[:digit:].]+)\.xip ]] && MACOS_SDK=${BASH_REMATCH[1]}
+
+}
+
+if [ -f "${WORKING_DIR}/Xcode_${MACOS_SDK}.xip" ]
 then
   HAS_MACOS_SDK="true"
 fi

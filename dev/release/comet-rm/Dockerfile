@@ -46,8 +46,8 @@ RUN export LC_ALL=C \
         patch \
         bzip2 \
         libbz2-dev \
-        zlib1g-dev
-
+        zlib1g-dev \
+        python3
 
 # Install rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -58,7 +58,7 @@ RUN cargo install cargo2junit
 FROM base AS with-macos-sdk-true
 ARG MACOS_SDK
 
-COPY workdir/$MACOS_SDK /opt/xcode/
+COPY workdir/Xcode_${MACOS_SDK}.xip /opt/xcode/
 
 RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
     rustup target add aarch64-apple-darwin; \
@@ -69,10 +69,10 @@ fi
 # Build OSXCross
 RUN cd /opt && git clone --depth 1 https://github.com/tpoechtrager/osxcross.git \
     && cd /opt/osxcross \
-    && ./tools/gen_sdk_package_pbzx.sh /opt/xcode/${MACOS_SDK} \
-    && cd .. \
+    && ./tools/gen_sdk_package_pbzx.sh /opt/xcode/XCode_${MACOS_SDK}.xip \
     && cp /opt/osxcross/*.tar.xz tarballs \
     && UNATTENDED=1 ./build.sh
+ENV SDK_VERSION=$MACOS_SDK
 ENV PATH="/opt/osxcross/target/bin:${PATH}"
 # Use osxcross toolchain for cargo
 COPY workdir/cargo.config /root/.cargo/config
