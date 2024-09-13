@@ -60,7 +60,7 @@ function cleanup()
 #      docker container stop comet-builder-registry
 #      docker rm comet-builder-registry
 #    fi
-    docker buildx rm --keep-state comet-builder
+#    docker buildx rm --keep-state comet-builder
     CLEANUP=0
   fi
 #  exit
@@ -111,16 +111,25 @@ fi
 # docker login localhost:49157
 
 # Create docker builder context
-docker buildx create \
-  --name comet-builder \
-  --driver docker-container \
-  --use --bootstrap
+#docker buildx create \
+#  --name comet-builder \
+#  --driver docker-container \
+#  --use --bootstrap
 
-BUILDER_IMAGE="comet-rm:$IMGTAG"
+BUILDER_IMAGE_ARM64="comet-rm-arm64:$IMGTAG"
+BUILDER_IMAGE_AMD64="comet-rm-amd64:$IMGTAG"
 
 # Build the docker image in which we will do the build
 docker build \
-  -t "$BUILDER_IMAGE" \
+  --platform=linux/arm64 \
+  -t "$BUILDER_IMAGE_ARM64" \
+  --build-arg HAS_MACOS_SDK=${HAS_MACOS_SDK} \
+  --build-arg MACOS_SDK=${MACOS_SDK} \
+  "$SCRIPT_DIR/comet-rm"
+
+docker build \
+  --platform=linux/amd64 \
+  -t "$BUILDER_IMAGE_AMD64" \
   --build-arg HAS_MACOS_SDK=${HAS_MACOS_SDK} \
   --build-arg MACOS_SDK=${MACOS_SDK} \
   "$SCRIPT_DIR/comet-rm"
@@ -137,7 +146,8 @@ docker run \
    --memory 24g \
    --cpus 6 \
    -it \
-   $BUILDER_IMAGE "${REPO}" "${BRANCH}" amd64
+   --platform linux/amd64 \
+   $BUILDER_IMAGE_AMD64 "${REPO}" "${BRANCH}" amd64
 
 if [ $? != 0 ]
 then
@@ -145,15 +155,15 @@ then
   exit 1
 fi
 
-## ARM64
-#echo "Building arm64 binary"
-#docker run \
-#   --name comet-arm64-builder-container \
-#   --memory 24g \
-#   --cpus 6 \
-#   -it \
-#   --platform linux/arm64 \
-#   $BUILDER_IMAGE "${REPO}" "${BRANCH}" arm64
+# ARM64
+echo "Building arm64 binary"
+docker run \
+   --name comet-arm64-builder-container \
+   --memory 24g \
+   --cpus 6 \
+   -it \
+   --platform linux/arm64 \
+   $BUILDER_IMAGE_ARM64 "${REPO}" "${BRANCH}" arm64
 
 if [ $? != 0 ]
 then

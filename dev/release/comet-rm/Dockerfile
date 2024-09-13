@@ -61,8 +61,8 @@ RUN cargo install cargo2junit
 #    && apt-get install --no-install-recommends -y pip \
 #    && pip install cargo-zigbuild
 
-RUN rustup target add x86_64-unknown-linux-gnu \
-	&& rustup target add aarch64-unknown-linux-gnu
+#RUN rustup target add x86_64-unknown-linux-gnu \
+#	&& rustup target add aarch64-unknown-linux-gnu
 
 # Stage to add OSXCross if MacOSSDK is provided
 FROM base AS with-macos-sdk-true
@@ -70,8 +70,11 @@ ARG MACOS_SDK
 
 COPY workdir/$MACOS_SDK /opt/xcode/
 
-RUN rustup target add x86_64-apple-darwin \
-    && rustup target add aarch64-apple-darwin
+RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
+    rustup target add aarch64-apple-darwin; \
+elif [ "$TARGETPLATFORM" = "linux/amd64" ]; then \
+    rustup target add x86_64-apple-darwin; \
+fi
 
 # Build OSXCross
 RUN cd /opt && git clone --depth 1 https://github.com/tpoechtrager/osxcross.git \

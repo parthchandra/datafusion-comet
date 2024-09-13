@@ -49,4 +49,4 @@ git checkout "$BRANCH"
 
 # build comet binaries
 
-make core-cross-libs
+make core-${ARCH}-libs
