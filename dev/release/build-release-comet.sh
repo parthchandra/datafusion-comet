@@ -116,7 +116,7 @@ docker buildx create \
   --driver docker-container \
   --use --bootstrap
 
-BUILDER_IMAGE="localhost:49157/comet-rm:$IMGTAG"
+BUILDER_IMAGE="comet-rm:$IMGTAG"
 
 # Build the docker image in which we will do the build
 docker build \

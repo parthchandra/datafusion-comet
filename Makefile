@@ -48,15 +48,13 @@ format:
 
 # build native libs for amd64 architecture Linux/MacOS on a Linux/amd64 machine/container
 core-zig-libs:
-	rustup target add x86_64-apple-darwin
-	rustup target add aarch64-apple-darwin
 	# if the environment variable HAS_OSXCROSS is defined
 ifdef $(HAS_OSXCROSS)
 	cd native && cargo zigbuild -j 1 --target aarch64-apple-darwin --release
 	cd native && cargo zigbuild -j 1 --target x86_64-apple-darwin --release
 endif
-	cd native && cargo zigbuild -j 1 --target x86_64-unknown-linux-gnu.2.17 --release
-	cd native && cargo zigbuild -j 1 --target aarch64-unknown-linux-gnu.2.17 --release
+	cd native && cargo zigbuild -j 1 --target x86_64-unknown-linux-gnu.2.27 --release
+	cd native && cargo zigbuild -j 1 --target aarch64-unknown-linux-gnu.2.27 --release
 
 # build native libs for arm64 architecture Linux/MacOS on a Linux/arm64 machine/container
 core-arm64-libs:
