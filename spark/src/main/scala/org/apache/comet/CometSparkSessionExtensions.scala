@@ -1021,7 +1021,8 @@ class CometSparkSessionExtensions
           sparkToColumnar.child
         case ColumnarToRowExec(sparkToColumnar: CometSparkToColumnarExec)
             if !sparkToColumnar.child.supportsColumnar =>
-          sparkToColumnar.child        case CometSparkToColumnarExec(child: CometSparkToColumnarExec) => child
+          sparkToColumnar.child
+        case CometSparkToColumnarExec(child: CometSparkToColumnarExec) => child
         // Spark adds `RowToColumnar` under Comet columnar shuffle. But it's redundant as the
         // shuffle takes row-based input.
         case s @ CometShuffleExchangeExec(
