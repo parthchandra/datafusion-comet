@@ -123,4 +123,28 @@ class Native extends NativeBase {
    *   the size of the array.
    */
   @native def sortRowPartitionsNative(addr: Long, size: Long): Unit
+
+  /**
+   * Given a set of value vectors from a record batch, return an array of corresponding UnsafeRows
+   * @param addresses
+   * @param rowSizes
+   * @param datatypes
+   * @param file
+   * @param preferDictionaryRatio
+   * @param batchSize
+   * @param checksumEnabled
+   * @param checksumAlgo
+   * @param currentChecksum
+   * @return
+   */
+  @native def getUnsafeRowsNative(
+                                     addresses: Array[Long],
+                                     rowSizes: Array[Int],
+                                     datatypes: Array[Array[Byte]],
+                                     file: String,
+                                     preferDictionaryRatio: Double,
+                                     batchSize: Int,
+                                     checksumEnabled: Boolean,
+                                     checksumAlgo: Int,
+                                     currentChecksum: Long): Array[Long]
 }

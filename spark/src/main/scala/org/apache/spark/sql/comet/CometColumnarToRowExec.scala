@@ -20,18 +20,25 @@
 package org.apache.spark.sql.comet
 
 import scala.collection.JavaConverters._
+import scala.collection.mutable
 
+import org.apache.spark.{SparkConf, SparkEnv, TaskContext}
 import org.apache.spark.rdd.RDD
+import org.apache.spark.shuffle.comet.CometShuffleMemoryAllocator
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, SortOrder, UnsafeProjection}
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodeGenerator, ExprCode, FalseLiteral, JavaCode}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
+import org.apache.spark.sql.comet.util.Utils.getUnsafeRowBatchSize
 import org.apache.spark.sql.execution.{CodegenSupport, ColumnarToRowTransition, SparkPlan}
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.types.DataType
 import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
+import org.apache.spark.unsafe.memory.MemoryBlock
 import org.apache.spark.util.Utils
+
+import org.apache.comet.vector.CometVector
 
 /**
  * This is currently an identical copy of Spark's ColumnarToRowExec except for removing the
@@ -81,6 +88,20 @@ case class CometColumnarToRowExec(child: SparkPlan)
         numInputBatches += 1
         numOutputRows += batch.numRows()
 
+        // NATIVE
+        val vectors = mutable.Buffer[CometVector]()
+        for (i <- 0 to batch.numCols() - 1) {
+          vectors += batch.column(i).asInstanceOf[CometVector]
+        }
+        val block = allocateUnsafeRowBatch(SparkEnv.get.conf, vectors.toArray)
+        // TODO: NATIVE
+        // batch.column(i) // get CometVectors from batch, put them in an array
+        // allocate buffer for the batch of UnsafeRow
+        //
+        // call JNI method to convert into array of byte arrays that back an InternalRow
+        //
+        // Return iterator over the array
+
         // This is the original Spark code that creates an iterator over `ColumnarBatch`
         // to provide `Iterator[InternalRow]`. The implementation uses a `ColumnarBatchRow`
         // instance that contains an array of `ColumnVector` which will be instances of
@@ -88,6 +109,14 @@ case class CometColumnarToRowExec(child: SparkPlan)
         batch.rowIterator().asScala.map(toUnsafe)
       }
     }
+  }
+
+  def allocateUnsafeRowBatch(conf: SparkConf, vectors: Array[CometVector]): MemoryBlock = {
+    val context = TaskContext.get()
+    val blockSize = getUnsafeRowBatchSize(vectors)
+    val allocator =
+      CometShuffleMemoryAllocator.getInstance(conf, context.taskMemoryManager(), blockSize)
+    allocator.allocatePage(blockSize)
   }
 
   /**

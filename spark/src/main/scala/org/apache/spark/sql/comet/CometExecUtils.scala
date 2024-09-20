@@ -22,15 +22,18 @@ package org.apache.spark.sql.comet
 import scala.collection.JavaConverters.asJavaIterableConverter
 import scala.reflect.ClassTag
 
-import org.apache.spark.{Partition, SparkContext, TaskContext}
+import org.apache.spark.{Partition, SparkConf, SparkContext, TaskContext}
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.catalyst.expressions.{Attribute, NamedExpression, SortOrder}
+import org.apache.spark.shuffle.comet.CometShuffleMemoryAllocator
+import org.apache.spark.sql.catalyst.expressions.{Attribute, NamedExpression, SortOrder, UnsafeRow}
 import org.apache.spark.sql.execution.SparkPlan
 import org.apache.spark.sql.vectorized.ColumnarBatch
+import org.apache.spark.unsafe.memory.MemoryBlock
 
 import org.apache.comet.serde.OperatorOuterClass
 import org.apache.comet.serde.OperatorOuterClass.Operator
 import org.apache.comet.serde.QueryPlanSerde.{exprToProto, serializeDataType}
+import org.apache.comet.vector.CometVector
 
 object CometExecUtils {
 
@@ -145,6 +148,7 @@ object CometExecUtils {
       None
     }
   }
+
 }
 
 /** A simple RDD with no data, but with the given number of partitions. */

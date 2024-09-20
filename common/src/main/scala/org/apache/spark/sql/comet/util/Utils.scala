@@ -35,6 +35,7 @@ import org.apache.arrow.vector.types._
 import org.apache.arrow.vector.types.pojo.{ArrowType, Field, FieldType, Schema}
 import org.apache.spark.{SparkEnv, SparkException}
 import org.apache.spark.io.CompressionCodec
+import org.apache.spark.sql.catalyst.expressions.UnsafeRow
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.vectorized.ColumnarBatch
 import org.apache.spark.util.io.{ChunkedByteBuffer, ChunkedByteBufferOutputStream}
@@ -261,4 +262,40 @@ object Utils {
         throw new SparkException(s"Unsupported Arrow Vector for $reason: ${valueVector.getClass}")
     }
   }
+
+  // Given an array of Comet vectors and the row number calculate the number of bytes required for
+  // an UnsafeRow to hold the values of that row.
+  //  def getUnsafeRowSize(vectors: Array[CometVector], row: Int ): Int = {
+  //    val bitSetWidth = UnsafeRow.calculateBitSetWidthInBytes(vectors.length)
+  //    vectors.map(v => {
+  //      v.getValueVector.ge
+  //    })
+  //
+  //  }
+
+  // Given an array of Comet vectors calculate the number of bytes required for a batch of
+  // UnsafeRow rows to hold the values of the vectors
+  def getUnsafeRowBatchSize(vectors: Array[CometVector]): Long = {
+    val bitSetWidth = UnsafeRow.calculateBitSetWidthInBytes(vectors.length)
+    val dataBytes: Long = vectors
+      .map(v => {
+        val dt = fromArrowField(v.getValueVector.getField)
+        assert(UnsafeRow.isMutable(dt) && UnsafeRow.isFixedLength(dt))
+        // For variable length types, assuming that the vector has not been read from, the
+        // readable bytes are the number of bytes of data in the vector.
+        val fixedBytes = 8L // offset (4 bytes) and length (4 bytes)
+        val varBytes = dt match {
+          case datatype if UnsafeRow.isFixedLength(datatype) => 0L
+          case DecimalType.Fixed(_, _) => 16L
+          case BinaryType | StringType =>
+            v.getValueVector.getDataBuffer.readableBytes
+          case _ =>
+            throw new UnsupportedOperationException(s"Unsupported data type: ${dt.catalogString}")
+        }
+        fixedBytes + varBytes
+      })
+      .sum
+    bitSetWidth + dataBytes
+  }
+
 }
