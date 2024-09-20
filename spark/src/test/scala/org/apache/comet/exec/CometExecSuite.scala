@@ -35,7 +35,7 @@ import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.catalog.{BucketSpec, CatalogStatistics, CatalogTable}
 import org.apache.spark.sql.catalyst.expressions.Hex
 import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateMode
-import org.apache.spark.sql.comet.{CometBroadcastExchangeExec, CometBroadcastHashJoinExec, CometCollectLimitExec, CometFilterExec, CometHashAggregateExec, CometHashJoinExec, CometProjectExec, CometScanExec, CometSortExec, CometSortMergeJoinExec, CometSparkToColumnarExec, CometTakeOrderedAndProjectExec}
+import org.apache.spark.sql.comet.{CometBroadcastExchangeExec, CometBroadcastHashJoinExec, CometCollectLimitExec, CometColumnarToRowExec, CometFilterExec, CometHashAggregateExec, CometHashJoinExec, CometProjectExec, CometScanExec, CometSortExec, CometSortMergeJoinExec, CometSparkToColumnarExec, CometTakeOrderedAndProjectExec}
 import org.apache.spark.sql.comet.execution.shuffle.{CometColumnarShuffle, CometShuffleExchangeExec}
 import org.apache.spark.sql.execution.{CollectLimitExec, ProjectExec, SQLExecution, UnionExec}
 import org.apache.spark.sql.execution.adaptive.AdaptiveSparkPlanExec
@@ -51,6 +51,8 @@ import org.apache.spark.unsafe.types.UTF8String
 
 import org.apache.comet.{CometConf, ExtendedExplainInfo}
 import org.apache.comet.CometSparkSessionExtensions.{isSpark33Plus, isSpark34Plus, isSpark35Plus, isSpark40Plus}
+import org.apache.comet.shaded.arrow.memory.RootAllocator
+import org.apache.comet.shaded.arrow.vector.IntVector
 
 class CometExecSuite extends CometTestBase {
   import testImplicits._
@@ -1832,6 +1834,65 @@ class CometExecSuite extends CometTestBase {
           .json("src/test/resources/test-data/json-test-1.ndjson")
           .createOrReplaceTempView("tbl")
         checkSparkAnswerAndOperator("SELECT a, b.c, b.d FROM tbl")
+      }
+    }
+  }
+
+  test("CometColumnarToExec ") {
+    Seq("", "parquet").foreach { v1List =>
+      Seq(true, false).foreach { parquetVectorized =>
+        Seq(
+          "cast(id as tinyint)",
+          "cast(id as smallint)",
+          "cast(id as integer)",
+          "cast(id as bigint)",
+          "cast(id as float)",
+          "cast(id as double)",
+          "cast(id as decimal)",
+          "cast(id as timestamp)",
+          "cast(id as string)",
+          "cast(id as binary)",
+          "struct(id)").foreach { valueType =>
+          {
+            withSQLConf(
+              SQLConf.USE_V1_SOURCE_LIST.key -> v1List,
+              CometConf.COMET_EXEC_ENABLED.key -> "true",
+              CometConf.COMET_EXEC_FILTER_ENABLED.key -> "false",
+              CometConf.COMET_EXEC_SHUFFLE_ENABLED.key -> "false",
+              CometConf.COMET_NATIVE_SCAN_ENABLED.key -> "true") {
+              withTempPath { dir =>
+                var df = spark
+                  .range(10000)
+                  .selectExpr("id as key", s"$valueType as value")
+                  .toDF("key", "value")
+
+                df.write.parquet(dir.toString)
+
+                df = spark.read.parquet(dir.toString).select("*").filter("(key / 2) = 0")
+
+                checkSparkAnswer(df)
+
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  test("arrow vector to unsafe") {
+    try {
+      val allocator = new RootAllocator()
+      val intVector = new IntVector("intVector", allocator)
+      try {
+        intVector.allocateNew(3)
+        intVector.set(0, 1)
+        intVector.set(1, 2)
+        intVector.set(2, 3)
+        intVector.setValueCount(3)
+      } finally {
+        if (allocator != null) allocator.close()
+        if (intVector != null) intVector.close()
       }
     }
   }

@@ -123,4 +123,12 @@ class Native extends NativeBase {
    *   the size of the array.
    */
   @native def sortRowPartitionsNative(addr: Long, size: Long): Unit
+
+  /**
+   * Given a set of value vectors from a record batch, return an array of corresponding UnsafeRows
+   * @param arrayAddrs
+   * @param schemaAddrs
+   * @return
+   */
+  @native def getUnsafeRowsNative( arrayAddrs: Array[Long], schemaAddrs: Array[Long]): Array[Long]
 }

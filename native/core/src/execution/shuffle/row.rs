@@ -41,12 +41,7 @@ use arrow_array::{
 };
 use arrow_schema::{ArrowError, DataType, Field, Schema, TimeUnit};
 use jni::sys::{jint, jlong};
-use std::{
-    fs::OpenOptions,
-    io::{Cursor, Seek, SeekFrom, Write},
-    str::from_utf8,
-    sync::Arc,
-};
+use std::{fs::OpenOptions, io::{Cursor, Seek, SeekFrom, Write}, mem, ptr, str::from_utf8, sync::Arc};
 
 const WORD_SIZE: i64 = 8;
 const MAX_LONG_DIGITS: u8 = 18;
@@ -206,6 +201,17 @@ impl Default for SparkUnsafeRow {
     }
 }
 
+macro_rules! set_value_at {
+    ($self:ident, $value_type:ty, $index: expr, $value: expr) => {
+        unsafe {
+            $self.set_not_null_at($index);
+            let addr = $self.get_element_offset($index, mem::size_of::<$value_type>()) as *mut u8;
+            let bytes = $value.to_le_bytes().as_ptr();
+            ptr::copy_nonoverlapping(bytes, addr, mem::size_of::<$value_type>());
+        }
+    };
+}
+
 impl SparkUnsafeRow {
     fn new(schema: &[DataType]) -> Self {
         Self {
@@ -270,6 +276,83 @@ impl SparkUnsafeRow {
             let word: i64 = *word_offset;
             *word_offset = word & !mask;
         }
+    }
+
+    pub fn set_null_at(&mut self, index: usize) {
+        unsafe {
+            let mask: i64 = 1i64 << (index & 0x3f);
+            let word_offset = (self.row_addr + (((index >> 6) as i64) << 3)) as *mut i64;
+            let word: i64 = *word_offset;
+            *word_offset = word | !mask;
+        }
+    }
+
+    pub fn set_boolean(&mut self, index: usize, value: bool) {
+        unsafe {
+            self.set_not_null_at(index);
+            let addr = self.get_element_offset(index, mem::size_of::<bool>()) as *mut u8;
+            *addr = value as u8;
+        }
+    }
+
+    pub fn set_byte(&mut self, index: usize, value: i8) {
+        set_value_at!(self, i8, index, value)
+        // unsafe {
+        //     self.set_not_null_at(index);
+        //     let addr = self.get_element_offset(index, i8::size()) as *mut u8;
+        //     let bytes = value.to_le_bytes().as_ptr();
+        //     ptr::copy_nonoverlapping(bytes, addr, i8::size());
+        // }
+    }
+
+    pub fn set_short(&mut self, index: usize, value: i16) {
+        set_value_at!(self, i16, index, value)
+        // unsafe {
+        //     self.set_not_null_at(index);
+        //     let addr = self.get_element_offset(index, i16::size()) as *mut u8;
+        //     let bytes = value.to_le_bytes().as_ptr();
+        //     ptr::copy_nonoverlapping(bytes, addr, i16::size());
+        // }
+    }
+
+    pub fn set_int(&mut self, index: usize, value: i32) {
+        set_value_at!(self, i32, index, value)
+        // unsafe {
+        //     self.set_not_null_at(index);
+        //     let addr = self.get_element_offset(index, i32::size()) as *mut u8;
+        //     let bytes = value.to_le_bytes().as_ptr();
+        //     ptr::copy_nonoverlapping(bytes, addr, i32::size());
+        // }
+    }
+
+    pub fn set_long(&mut self, index: usize, value: i64) {
+        set_value_at!(self, i64, index, value)
+        // unsafe {
+        //     self.set_not_null_at(index);
+        //     let addr = self.get_element_offset(index, i64::size()) as *mut u8;
+        //     let bytes = value.to_le_bytes().as_ptr();
+        //     ptr::copy_nonoverlapping(bytes, addr, i64::size());
+        // }
+    }
+
+    pub fn set_float(&mut self, index: usize, value: f32) {
+        set_value_at!(self, f64, index, value)
+        // unsafe {
+        //     self.set_not_null_at(index);
+        //     let addr = self.get_element_offset(index, f32::size()) as *mut u8;
+        //     let bytes = value.to_le_bytes().as_ptr();
+        //     ptr::copy_nonoverlapping(bytes, addr, f32::size());
+        // }
+    }
+
+    pub fn set_double(&mut self, index: usize, value: f64) {
+        set_value_at!(self, f64, index, value)
+        // unsafe {
+        //     self.set_not_null_at(index);
+        //     let addr = self.get_element_offset(index, f64::size()) as *mut u8;
+        //     let bytes = value.to_le_bytes().as_ptr();
+        //     ptr::copy_nonoverlapping(bytes, addr, f64::size());
+        // }
     }
 }
 
