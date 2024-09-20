@@ -18,7 +18,15 @@
 //! Define JNI APIs which can be called from Java/Scala.
 
 use arrow::datatypes::DataType as ArrowDataType;
-use arrow_array::RecordBatch;
+use arrow_array::cast::AsArray;
+use arrow_array::{
+    make_array, Array, ArrayRef, BooleanArray, Datum, Float32Array, Float64Array, Int16Array,
+    Int32Array, Int64Array, Int8Array, RecordBatch,
+};
+use arrow_data::ffi::FFI_ArrowArray;
+use arrow_data::ArrayData;
+use arrow_schema::ffi::FFI_ArrowSchema;
+use arrow_schema::{Schema, TimeUnit};
 use datafusion::{
     execution::{
         disk_manager::DiskManagerConfig,
@@ -37,7 +45,8 @@ use jni::{
     sys::{jbyteArray, jint, jlong, jlongArray},
     JNIEnv,
 };
-use std::{collections::HashMap, sync::Arc, task::Poll};
+use std::rc::Rc;
+use std::{collections::HashMap, mem, sync::Arc, task::Poll};
 
 use super::{serde, utils::SparkArrowConvert, CometMemoryPool};
 
@@ -48,17 +57,21 @@ use crate::{
         serde::to_arrow_datatype, shuffle::row::process_sorted_row_partition, sort::RdxSort,
     },
     jvm_bridge::{jni_new_global_ref, JVMClasses},
+    DataType,
 };
 use datafusion_comet_proto::spark_operator::Operator;
 use datafusion_common::ScalarValue;
 use futures::stream::StreamExt;
+use jni::sys::jobject;
 use jni::{
     objects::GlobalRef,
     sys::{jboolean, jdouble, jintArray, jobjectArray, jstring},
 };
 use tokio::runtime::Runtime;
 
+use crate::errors::CometError::Spark;
 use crate::execution::operators::ScanExec;
+use crate::execution::shuffle::row::SparkUnsafeRow;
 use log::info;
 
 /// Comet native execution context. Kept alive across JNI calls.
@@ -562,5 +575,169 @@ pub extern "system" fn Java_org_apache_comet_Native_sortRowPartitionsNative(
         array.rdxsort();
 
         Ok(())
+    })
+}
+
+#[no_mangle]
+/// Used by Comet ColumnarToRow
+///   @native def getUnsafeRowsNative(
+//       baseObject: Object,
+//       offset: Long,
+//       length: Long,
+//       arrayAddrs: Array[Long],
+//       schemaAddrs: Array[Long]): Array[Long]
+pub extern "system" fn Java_org_apache_comet_Native_getUnsafeRowsNative(
+    e: JNIEnv,
+    _class: JClass,
+    _base_object: JObject,
+    offset: jlong,
+    length: jlong,
+    array_addrs: jlongArray,
+    schema_addrs: jlongArray,
+) -> jlong {
+    try_unwrap_or_throw(&e, |mut env| unsafe {
+        // SAFETY: JVM unsafe memory allocation is aligned with long.
+        // let long_array = env.new_long_array(2)?;
+
+        let array_address_array = unsafe { JLongArray::from_raw(array_addrs) };
+        let num_cols = env.get_array_length(&array_address_array)? as usize;
+
+        let array_addrs =
+            unsafe { env.get_array_elements(&array_address_array, ReleaseMode::NoCopyBack)? };
+        let array_addrs = &*array_addrs;
+
+        let schema_address_array = unsafe { JLongArray::from_raw(schema_addrs) };
+        let schema_addrs =
+            unsafe { env.get_array_elements(&schema_address_array, ReleaseMode::NoCopyBack)? };
+        let schema_addrs = &*schema_addrs;
+
+        let mut schema: Vec<ArrowDataType> = Vec::new();
+        let mut arrays: Vec<ArrayRef> = Vec::new();
+
+        let mut num_rows = 0;
+        for i in 0..num_cols {
+            let array_ptr = array_addrs[i];
+            let schema_ptr = schema_addrs[i];
+            let array_data = ArrayData::from_spark((array_ptr, schema_ptr))?;
+
+            // TODO: validate array input data
+            // inputs.push(make_array(array_data));
+            let array = make_array(array_data);
+            if num_rows == 0 {
+                num_rows = array.len();
+            } else {
+                assert!(array.len() == num_rows)
+            }
+            // println!("Vector {:?} : {:?}", i, array);
+            // println!("Vector {:?} : {:?}", i, array.data_type());
+            schema.push(array.data_type().clone());
+            arrays.push(array);
+            // Drop the Arcs to avoid memory leak
+            unsafe {
+                Rc::from_raw(array_ptr as *const FFI_ArrowArray);
+                Rc::from_raw(schema_ptr as *const FFI_ArrowSchema);
+            }
+        }
+
+        // A MemoryBlock object allocated by UnsafeMemoryAllocator has 'null' as the underlying
+        // object, and the address of the allocated memory as the offset.
+        // The base_object passed in is therefore a null pointer and the offset is the raw pointer
+        // to the memory we wish to write to.
+        SparkUnsafeRow::get_rows_from_arrays(schema, arrays, num_rows, num_cols, offset as usize);
+        /*
+                let mut row_start_addr: usize = offset as usize;
+                for i in 0..num_rows {
+                    let mut row = SparkUnsafeRow::new(&schema);
+                    let row_size = SparkUnsafeRow::get_row_bitset_width(schema.len()) + 8 * num_cols;
+                    // let start_addr = (row_start_addr as i64 + row_size as i64) as *const u8;
+                    let row_slice = std::slice::from_raw_parts(row_start_addr as *const u8, row_size);
+                    row_start_addr = row_start_addr + row_size;
+                    row.point_to_slice(row_slice);
+                    for j in 0..num_cols {
+                        let arr = arrays.get(j).unwrap();
+                        let dt = &schema[j];
+                        assert_eq!(dt, arr.data_type());
+                        match dt {
+                            ArrowDataType::Boolean => {
+                                set_value_from_array!(i, j, arr.as_boolean(), row)
+                                // let bool_array = arr.as_boolean();
+                                // let val = bool_array.value(i);
+                                // if bool_array.is_null(i) {
+                                //     row.set_null_at(j);
+                                // } else {
+                                //     row.set_boolean(j, val);
+                                // }
+                            }
+                            ArrowDataType::Int8 => {
+                                set_value_from_array!(i, j, arr.as_primitive(), row)
+                                // let i8_array: Int8Array = arr.as_primitive().clone();
+                                // let val = i8_array.value(i);
+                                // if i8_array.is_null(i) {
+                                //     row.set_null_at(j);
+                                // } else {
+                                //     row.set_byte(j, val);
+                                // }
+                            }
+                            ArrowDataType::Int16 => {
+                                let i16_array: Int16Array = arr.as_primitive().clone();
+                                let val = i16_array.value(i);
+                                if i16_array.is_null(i) {
+                                    row.set_null_at(j);
+                                } else {
+                                    row.set_short(j, val);
+                                }
+                            }
+                            ArrowDataType::Int32 => {
+                                // set_value_from_array!(Int32Array, i, j, arr, row)
+                                let i32_array: Int32Array = arr.as_primitive().clone();
+                                let val = i32_array.value(i);
+                                if i32_array.is_null(i) {
+                                    row.set_null_at(j);
+                                } else {
+                                    row.set_int(j, val);
+                                }
+                            }
+                            ArrowDataType::Int64 => {
+                                let i64_array: Int64Array = arr.as_primitive().clone();
+                                let val = i64_array.value(i);
+                                if i64_array.is_null(i) {
+                                    row.set_null_at(j);
+                                } else {
+                                    row.set_long(j, val);
+                                }
+                            }
+                            ArrowDataType::Float32 => {
+                                let f32_array: Float32Array = arr.as_primitive().clone();
+                                let val = f32_array.value(i);
+                                if f32_array.is_null(i) {
+                                    row.set_null_at(j);
+                                } else {
+                                    row.set_float(j, val);
+                                }
+                            }
+                            ArrowDataType::Float64 => {
+                                let f64_array: Float64Array = arr.as_primitive().clone();
+                                let val = f64_array.value(i);
+                                if f64_array.is_null(i) {
+                                    row.set_null_at(j);
+                                } else {
+                                    row.set_double(j, val);
+                                }
+                            }
+                            ArrowDataType::Timestamp(TimeUnit::Microsecond, _) => {
+
+                            }
+                            ArrowDataType::Date32 => {}
+                            ArrowDataType::Binary => {}
+                            ArrowDataType::Utf8 => {}
+                            ArrowDataType::Decimal128(_, _) => {}
+                            _ => {
+                                unreachable!("Unsupported data type of column: {:?}", dt)
+                            }
+                        }
+                    }
+                }
+        */
+        Ok(array_addrs[0]) // Bogus
     })
 }

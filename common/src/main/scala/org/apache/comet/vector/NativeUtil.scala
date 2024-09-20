@@ -169,6 +169,21 @@ class NativeUtil {
   }
 
   /**
+   * Export a columnarBatch, returning arrays of pointers (addresses) to the underlying arrays and
+   * schemas
+   * @param batch
+   * @return
+   *   arrayAddresses, schemaAddresses
+   */
+  def exportColumnarBatch(batch: ColumnarBatch): (Array[Long], Array[Long]) = {
+    val (arrays, schemas) = allocateArrowStructs(batch.numCols())
+    val arrayAddrs = arrays.map(_.memoryAddress())
+    val schemaAddrs = schemas.map(_.memoryAddress())
+    exportBatch(arrayAddrs, schemaAddrs, batch)
+    (arrayAddrs, schemaAddrs)
+  }
+
+  /**
    * Imports a list of Arrow addresses from native execution, and return a list of Comet vectors.
    *
    * @param arrays
