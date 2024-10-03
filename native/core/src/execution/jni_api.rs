@@ -18,7 +18,7 @@
 //! Define JNI APIs which can be called from Java/Scala.
 
 use arrow::datatypes::DataType as ArrowDataType;
-use arrow_array::RecordBatch;
+use arrow_array::{make_array, RecordBatch};
 use datafusion::{
     execution::{
         disk_manager::DiskManagerConfig,
@@ -38,17 +38,17 @@ use jni::{
     JNIEnv,
 };
 use std::{collections::HashMap, sync::Arc, task::Poll};
+use std::rc::Rc;
+use arrow_data::ArrayData;
+use arrow_data::ffi::FFI_ArrowArray;
+use arrow_schema::ffi::FFI_ArrowSchema;
 
 use super::{serde, utils::SparkArrowConvert, CometMemoryPool};
 
-use crate::{
-    errors::{try_unwrap_or_throw, CometError, CometResult},
-    execution::{
-        datafusion::planner::PhysicalPlanner, metrics::utils::update_comet_metric,
-        serde::to_arrow_datatype, shuffle::row::process_sorted_row_partition, sort::RdxSort,
-    },
-    jvm_bridge::{jni_new_global_ref, JVMClasses},
-};
+use crate::{errors::{try_unwrap_or_throw, CometError, CometResult}, execution::{
+    datafusion::planner::PhysicalPlanner, metrics::utils::update_comet_metric,
+    serde::to_arrow_datatype, shuffle::row::process_sorted_row_partition, sort::RdxSort,
+}, jvm_bridge::{jni_new_global_ref, JVMClasses}, write_null};
 use datafusion_comet_proto::spark_operator::Operator;
 use datafusion_common::ScalarValue;
 use futures::stream::StreamExt;
@@ -56,6 +56,7 @@ use jni::{
     objects::GlobalRef,
     sys::{jboolean, jdouble, jintArray, jobjectArray, jstring},
 };
+use jni::sys::jobject;
 use tokio::runtime::Runtime;
 
 use crate::execution::operators::ScanExec;
@@ -562,5 +563,63 @@ pub extern "system" fn Java_org_apache_comet_Native_sortRowPartitionsNative(
         array.rdxsort();
 
         Ok(())
+    })
+}
+
+#[no_mangle]
+/// Used by Comet ColumnarToRow
+///   @native def getUnsafeRowsNative(
+//       baseObject: Object,
+//       offset: Long,
+//       length: Long,
+//       arrayAddrs: Array[Long],
+//       schemaAddrs: Array[Long]): Array[Long]
+pub extern "system" fn Java_org_apache_comet_Native_getUnsafeRowsNative(
+    e: JNIEnv,
+    _class: JClass,
+    _base_object: jobject,
+    offset: jlong,
+    length: jlong,
+    array_addrs: jlongArray,
+    schema_addrs: jlongArray,
+    size: jlong,
+) -> jlong {
+    try_unwrap_or_throw(&e, |mut env| {
+        // SAFETY: JVM unsafe memory allocation is aligned with long.
+        // let long_array = env.new_long_array(2)?;
+
+        let array_address_array = unsafe { JLongArray::from_raw(array_addrs) };
+        let num_cols = env.get_array_length(&array_address_array)? as usize;
+
+        let array_addrs =
+            unsafe { env.get_array_elements(&array_address_array, ReleaseMode::NoCopyBack)? };
+        let array_addrs = &*array_addrs;
+
+        let schema_address_array = unsafe { JLongArray::from_raw(schema_addrs) };
+        let schema_addrs =
+            unsafe { env.get_array_elements(&schema_address_array, ReleaseMode::NoCopyBack)? };
+        let schema_addrs = &*schema_addrs;
+
+        println!("offset: {:?} length: {:?}, array: {:?}, schema: {:?}, size: {:?}", offset, length, array_addrs, schema_addrs, size);
+        for i in 0..num_cols {
+            let array_ptr = array_addrs[i];
+            let schema_ptr = schema_addrs[i];
+            let array_data = ArrayData::from_spark((array_ptr, schema_ptr))?;
+
+            // TODO: validate array input data
+            // inputs.push(make_array(array_data));
+            let array = make_array(array_data);
+            println!("Vector {:?} : {:?}", i, array);
+
+            // Drop the Arcs to avoid memory leak
+            unsafe {
+                Rc::from_raw(array_ptr as *const FFI_ArrowArray);
+                Rc::from_raw(schema_ptr as *const FFI_ArrowSchema);
+            }
+        }
+
+        Ok(array_addrs[0]) // Bogus
+
+
     })
 }

@@ -130,5 +130,10 @@ class Native extends NativeBase {
    * @param schemaAddrs
    * @return
    */
-  @native def getUnsafeRowsNative( arrayAddrs: Array[Long], schemaAddrs: Array[Long]): Array[Long]
+  @native def getUnsafeRowsNative(
+      baseObject: Object,
+      offset: Long,
+      length: Long,
+      arrayAddrs: Array[Long],
+      schemaAddrs: Array[Long]): Array[Long]
 }

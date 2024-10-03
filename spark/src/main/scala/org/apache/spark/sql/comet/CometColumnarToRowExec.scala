@@ -36,9 +36,10 @@ import org.apache.spark.sql.types.DataType
 import org.apache.spark.sql.vectorized.{ColumnVector, ColumnarBatch}
 import org.apache.spark.unsafe.memory.MemoryBlock
 import org.apache.spark.util.Utils
+
+import org.apache.comet.Native
 import org.apache.comet.vector.{CometVector, NativeUtil}
 
-import java.lang.annotation.Native
 
 /**
  * This is currently an identical copy of Spark's ColumnarToRowExec except for removing the
@@ -102,8 +103,7 @@ case class CometColumnarToRowExec(child: SparkPlan)
         val arrayAddrs = arrays.map(_.memoryAddress())
         val schemaAddrs = schemas.map(_.memoryAddress())
         nativeUtil.exportBatch(arrayAddrs, schemaAddrs, batch)
-        native.getUnsafeRow
-
+        native.getUnsafeRowsNative(block.getBaseObject, block.getBaseOffset, block.size, arrayAddrs, schemaAddrs)
 
         // TODO: NATIVE
         // batch.column(i) // get CometVectors from batch, put them in an array
