@@ -41,7 +41,13 @@ use arrow_array::{
 };
 use arrow_schema::{ArrowError, DataType, Field, Schema, TimeUnit};
 use jni::sys::{jint, jlong};
-use std::{fs::OpenOptions, io::{Cursor, Seek, SeekFrom, Write}, mem, ptr, str::from_utf8, sync::Arc};
+use std::{
+    fs::OpenOptions,
+    io::{Cursor, Seek, SeekFrom, Write},
+    mem, ptr,
+    str::from_utf8,
+    sync::Arc,
+};
 
 const WORD_SIZE: i64 = 8;
 const MAX_LONG_DIGITS: u8 = 18;

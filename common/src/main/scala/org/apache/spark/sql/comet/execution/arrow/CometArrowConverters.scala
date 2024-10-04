@@ -22,14 +22,16 @@ package org.apache.spark.sql.comet.execution.arrow
 import org.apache.arrow.memory.{BufferAllocator, RootAllocator}
 import org.apache.arrow.vector.VectorSchemaRoot
 import org.apache.arrow.vector.types.pojo.Schema
-import org.apache.spark.TaskContext
+import org.apache.spark.{SparkEnv, TaskContext}
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.comet.util.Utils
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.vectorized.{ColumnarArray, ColumnarBatch}
+import org.apache.comet.vector.{CometVector, NativeUtil}
 
-import org.apache.comet.vector.NativeUtil
+import scala.collection.JavaConverters.asScalaIteratorConverter
+import scala.collection.mutable
 
 object CometArrowConverters extends Logging {
   // TODO: we should reuse the same root allocator in the comet code base?
@@ -194,5 +196,76 @@ object CometArrowConverters extends Logging {
       timeZoneId: String,
       context: TaskContext): Iterator[ColumnarBatch] = {
     new ColumnBatchToArrowBatchIter(colBatch, schema, maxRecordsPerBatch, timeZoneId, context)
+  }
+
+
+  private[sql] class ColumnBatchToSparkRowIter(
+                                                  colBatch: ColumnarBatch,
+                                                  schema: StructType,
+                                                  timeZoneId: String,
+                                                  context: TaskContext)
+    extends Iterator[InternalRow]
+      with AutoCloseable {
+
+        val nativeUtil = new NativeUtil()
+
+        val native = new Native()
+
+      protected val arrowSchema: Schema = Utils.toArrowSchema(schema, timeZoneId)
+      protected val allocator: BufferAllocator =
+        rootAllocator.newChildAllocator(s"to${this.getClass.getSimpleName}", 0, Long.MaxValue)
+      protected var closed: Boolean = false
+
+      Option(context).foreach {
+        _.addTaskCompletionListener[Unit] { _ =>
+          close(true)
+        }
+      }
+
+    val rowIter = colBatch.rowIterator()
+
+    override def hasNext: Boolean = rowIter.hasNext || {
+      close(false)
+      false
+    }
+
+    override protected def next(): InternalRow = {
+      val vectors = mutable.Buffer[CometVector]()
+      for (i <- 0 to colBatch.numCols() - 1) {
+        vectors += colBatch.column(i).asInstanceOf[CometVector]
+      }
+      val block = allocateUnsafeRowBatch(SparkEnv.get.conf, vectors.toArray)
+      val (arrayAddrs, schemaAddrs) = nativeUtil.exportColumnarBatch(colBatch)
+      native.getUnsafeRowsNative(
+        block.getBaseObject,
+        block.getBaseOffset,
+        block.size,
+        arrayAddrs,
+        schemaAddrs)
+      rowIter.next()
+    }
+
+    override def close(): Unit = {
+      close(false)
+    }
+
+    protected def close(closeAllocator: Boolean): Unit = {
+      if (!closed) {
+        closed = true
+      }
+      // the allocator shall be closed when the task is finished
+      if (closeAllocator) {
+        allocator.close()
+      }
+    }
+
+  }
+
+  def columnarBatchToSparkRowIter(
+                                     colBatch: ColumnarBatch,
+                                     schema: StructType,
+                                     timeZoneId: String,
+                                     context: TaskContext): Iterator[ColumnarBatch] = {
+    new ColumnBatchToArrowBatchIter(colBatch, schema, timeZoneId, context)
   }
 }

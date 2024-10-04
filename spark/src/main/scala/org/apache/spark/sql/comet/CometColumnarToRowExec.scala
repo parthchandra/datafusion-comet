@@ -21,25 +21,25 @@ package org.apache.spark.sql.comet
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
+
 import org.apache.spark.{SparkConf, SparkEnv, TaskContext}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.shuffle.comet.CometShuffleMemoryAllocator
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{Attribute, SortOrder, UnsafeProjection}
-import org.apache.spark.sql.catalyst.expressions.codegen.{CodeGenerator, CodegenContext, ExprCode, FalseLiteral, JavaCode}
+import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodeGenerator, ExprCode, FalseLiteral, JavaCode}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
 import org.apache.spark.sql.comet.util.Utils.getUnsafeRowBatchSize
 import org.apache.spark.sql.execution.{CodegenSupport, ColumnarToRowTransition, SparkPlan}
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.types.DataType
-import org.apache.spark.sql.vectorized.{ColumnVector, ColumnarBatch}
+import org.apache.spark.sql.vectorized.{ColumnarBatch, ColumnVector}
 import org.apache.spark.unsafe.memory.MemoryBlock
 import org.apache.spark.util.Utils
 
 import org.apache.comet.Native
 import org.apache.comet.vector.{CometVector, NativeUtil}
-
 
 /**
  * This is currently an identical copy of Spark's ColumnarToRowExec except for removing the
@@ -54,6 +54,8 @@ case class CometColumnarToRowExec(child: SparkPlan)
     with CodegenSupport {
   // supportsColumnar requires to be only called on driver side, see also SPARK-37779.
   assert(Utils.isInRunningSparkTask || child.supportsColumnar)
+
+  override def supportCodegen: Boolean = false
 
   override def supportsColumnar: Boolean = false
 
@@ -83,27 +85,15 @@ case class CometColumnarToRowExec(child: SparkPlan)
     // This avoids calling `output` in the RDD closure, so that we don't need to include the entire
     // plan (this) in the closure.
     val localOutput = this.output
-    val nativeUtil = new NativeUtil()
-    val native = new Native()
+//    val nativeUtil = new NativeUtil()
+//    val native = new Native()
     val rowRDD = child.executeColumnar().mapPartitionsInternal { batches =>
       val toUnsafe = UnsafeProjection.create(localOutput, localOutput)
       batches.flatMap { batch =>
         numInputBatches += 1
         numOutputRows += batch.numRows()
 
-        // NATIVE
-        val vectors = mutable.Buffer[CometVector]()
-        for (i <- 0 to batch.numCols() - 1) {
-          vectors += batch.column(i).asInstanceOf[CometVector]
-        }
-        val block = allocateUnsafeRowBatch(SparkEnv.get.conf, vectors.toArray)
 
-        val (arrays, schemas) = nativeUtil.allocateArrowStructs(batch.numCols())
-
-        val arrayAddrs = arrays.map(_.memoryAddress())
-        val schemaAddrs = schemas.map(_.memoryAddress())
-        nativeUtil.exportBatch(arrayAddrs, schemaAddrs, batch)
-        native.getUnsafeRowsNative(block.getBaseObject, block.getBaseOffset, block.size, arrayAddrs, schemaAddrs)
 
         // TODO: NATIVE
         // batch.column(i) // get CometVectors from batch, put them in an array
@@ -112,6 +102,24 @@ case class CometColumnarToRowExec(child: SparkPlan)
         // call JNI method to convert into array of byte arrays that back an InternalRow
         //
         // Return iterator over the array
+
+        // The following fails because NAtiveUtil is not serializable
+        // FIXME: Create a ArrowBatchToSparkRow Iterator in CometArrowConverters. Move this code to that class
+        // TODO: Implement ColumnBatchToSparkRowIter
+        // NATIVE
+//        val vectors = mutable.Buffer[CometVector]()
+//        for (i <- 0 to batch.numCols() - 1) {
+//          vectors += batch.column(i).asInstanceOf[CometVector]
+//        }
+//        val block = allocateUnsafeRowBatch(SparkEnv.get.conf, vectors.toArray)
+//        val (arrayAddrs, schemaAddrs) = nativeUtil.exportColumnarBatch(batch)
+//        native.getUnsafeRowsNative(
+//          block.getBaseObject,
+//          block.getBaseOffset,
+//          block.size,
+//          arrayAddrs,
+//          schemaAddrs)
+
 
         // This is the original Spark code that creates an iterator over `ColumnarBatch`
         // to provide `Iterator[InternalRow]`. The implementation uses a `ColumnarBatchRow`
@@ -214,6 +222,7 @@ case class CometColumnarToRowExec(child: SparkPlan)
     } else {
       "// shouldStop check is eliminated"
     }
+    val out =
     s"""
        |if ($batch == null) {
        |  $nextBatchFuncName();
@@ -231,6 +240,8 @@ case class CometColumnarToRowExec(child: SparkPlan)
        |  $nextBatchFuncName();
        |}
      """.stripMargin
+     System.out.println(out)
+     out
   }
 
   override def inputRDDs(): Seq[RDD[InternalRow]] = {

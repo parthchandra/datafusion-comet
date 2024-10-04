@@ -19,6 +19,9 @@
 
 use arrow::datatypes::DataType as ArrowDataType;
 use arrow_array::{make_array, RecordBatch};
+use arrow_data::ffi::FFI_ArrowArray;
+use arrow_data::ArrayData;
+use arrow_schema::ffi::FFI_ArrowSchema;
 use datafusion::{
     execution::{
         disk_manager::DiskManagerConfig,
@@ -37,26 +40,27 @@ use jni::{
     sys::{jbyteArray, jint, jlong, jlongArray},
     JNIEnv,
 };
-use std::{collections::HashMap, sync::Arc, task::Poll};
 use std::rc::Rc;
-use arrow_data::ArrayData;
-use arrow_data::ffi::FFI_ArrowArray;
-use arrow_schema::ffi::FFI_ArrowSchema;
+use std::{collections::HashMap, sync::Arc, task::Poll};
 
 use super::{serde, utils::SparkArrowConvert, CometMemoryPool};
 
-use crate::{errors::{try_unwrap_or_throw, CometError, CometResult}, execution::{
-    datafusion::planner::PhysicalPlanner, metrics::utils::update_comet_metric,
-    serde::to_arrow_datatype, shuffle::row::process_sorted_row_partition, sort::RdxSort,
-}, jvm_bridge::{jni_new_global_ref, JVMClasses}, write_null};
+use crate::{
+    errors::{try_unwrap_or_throw, CometError, CometResult},
+    execution::{
+        datafusion::planner::PhysicalPlanner, metrics::utils::update_comet_metric,
+        serde::to_arrow_datatype, shuffle::row::process_sorted_row_partition, sort::RdxSort,
+    },
+    jvm_bridge::{jni_new_global_ref, JVMClasses},
+};
 use datafusion_comet_proto::spark_operator::Operator;
 use datafusion_common::ScalarValue;
 use futures::stream::StreamExt;
+use jni::sys::jobject;
 use jni::{
     objects::GlobalRef,
     sys::{jboolean, jdouble, jintArray, jobjectArray, jstring},
 };
-use jni::sys::jobject;
 use tokio::runtime::Runtime;
 
 use crate::execution::operators::ScanExec;
@@ -600,7 +604,10 @@ pub extern "system" fn Java_org_apache_comet_Native_getUnsafeRowsNative(
             unsafe { env.get_array_elements(&schema_address_array, ReleaseMode::NoCopyBack)? };
         let schema_addrs = &*schema_addrs;
 
-        println!("offset: {:?} length: {:?}, array: {:?}, schema: {:?}, size: {:?}", offset, length, array_addrs, schema_addrs, size);
+        println!(
+            "offset: {:?} length: {:?}, array: {:?}, schema: {:?}, size: {:?}",
+            offset, length, array_addrs, schema_addrs, size
+        );
         for i in 0..num_cols {
             let array_ptr = array_addrs[i];
             let schema_ptr = schema_addrs[i];
@@ -619,7 +626,5 @@ pub extern "system" fn Java_org_apache_comet_Native_getUnsafeRowsNative(
         }
 
         Ok(array_addrs[0]) // Bogus
-
-
     })
 }
