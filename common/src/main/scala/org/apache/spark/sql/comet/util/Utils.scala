@@ -279,14 +279,16 @@ object Utils {
     val bitSetWidth = UnsafeRow.calculateBitSetWidthInBytes(vectors.length)
     val dataBytes: Long = vectors
       .map(v => {
+        val num_rows = v.getValueVector.getValueCount
         val dt = fromArrowField(v.getValueVector.getField)
-        assert(UnsafeRow.isMutable(dt) && UnsafeRow.isFixedLength(dt))
+        assert(
+          UnsafeRow.isMutable(dt) || dt.isInstanceOf[BinaryType] || dt.isInstanceOf[StringType])
         // For variable length types, assuming that the vector has not been read from, the
         // readable bytes are the number of bytes of data in the vector.
-        val fixedBytes = 8L // offset (4 bytes) and length (4 bytes)
+        val fixedBytes = num_rows * 8L // offset (4 bytes) and length (4 bytes)
         val varBytes = dt match {
           case datatype if UnsafeRow.isFixedLength(datatype) => 0L
-          case DecimalType.Fixed(_, _) => 16L
+          case DecimalType.Fixed(_, _) => num_rows * 16L
           case BinaryType | StringType =>
             v.getValueVector.getDataBuffer.readableBytes
           case _ =>

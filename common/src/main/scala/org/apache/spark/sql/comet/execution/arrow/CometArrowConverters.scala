@@ -19,19 +19,20 @@
 
 package org.apache.spark.sql.comet.execution.arrow
 
+import java.{util => ju}
+
 import org.apache.arrow.memory.{BufferAllocator, RootAllocator}
 import org.apache.arrow.vector.VectorSchemaRoot
 import org.apache.arrow.vector.types.pojo.Schema
-import org.apache.spark.{SparkEnv, TaskContext}
+import org.apache.spark.TaskContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.comet.util.Utils
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.vectorized.{ColumnarArray, ColumnarBatch}
-import org.apache.comet.vector.{CometVector, NativeUtil}
+import org.apache.spark.unsafe.memory.MemoryBlock
 
-import scala.collection.JavaConverters.asScalaIteratorConverter
-import scala.collection.mutable
+import org.apache.comet.vector.NativeUtil
 
 object CometArrowConverters extends Logging {
   // TODO: we should reuse the same root allocator in the comet code base?
@@ -198,50 +199,41 @@ object CometArrowConverters extends Logging {
     new ColumnBatchToArrowBatchIter(colBatch, schema, maxRecordsPerBatch, timeZoneId, context)
   }
 
-
   private[sql] class ColumnBatchToSparkRowIter(
-                                                  colBatch: ColumnarBatch,
-                                                  schema: StructType,
-                                                  timeZoneId: String,
-                                                  context: TaskContext)
-    extends Iterator[InternalRow]
+      colBatch: ColumnarBatch,
+      schema: StructType,
+      timeZoneId: String,
+      context: TaskContext,
+      block: MemoryBlock,
+      converter: (MemoryBlock, Array[Long], Array[Long]) => Array[Long])
+      extends Iterator[InternalRow]
       with AutoCloseable {
 
-        val nativeUtil = new NativeUtil()
+    val nativeUtil = new NativeUtil()
 
-        val native = new Native()
+//    val native = new Native()
 
-      protected val arrowSchema: Schema = Utils.toArrowSchema(schema, timeZoneId)
-      protected val allocator: BufferAllocator =
-        rootAllocator.newChildAllocator(s"to${this.getClass.getSimpleName}", 0, Long.MaxValue)
-      protected var closed: Boolean = false
+    protected val arrowSchema: Schema = Utils.toArrowSchema(schema, timeZoneId)
+    protected val allocator: BufferAllocator =
+      rootAllocator.newChildAllocator(s"to${this.getClass.getSimpleName}", 0, Long.MaxValue)
+    protected var closed: Boolean = false
 
-      Option(context).foreach {
-        _.addTaskCompletionListener[Unit] { _ =>
-          close(true)
-        }
+    Option(context).foreach {
+      _.addTaskCompletionListener[Unit] { _ =>
+        close(true)
       }
+    }
 
-    val rowIter = colBatch.rowIterator()
+    private val rowIter: ju.Iterator[InternalRow] = colBatch.rowIterator()
 
     override def hasNext: Boolean = rowIter.hasNext || {
       close(false)
       false
     }
 
-    override protected def next(): InternalRow = {
-      val vectors = mutable.Buffer[CometVector]()
-      for (i <- 0 to colBatch.numCols() - 1) {
-        vectors += colBatch.column(i).asInstanceOf[CometVector]
-      }
-      val block = allocateUnsafeRowBatch(SparkEnv.get.conf, vectors.toArray)
+    override def next(): InternalRow = {
       val (arrayAddrs, schemaAddrs) = nativeUtil.exportColumnarBatch(colBatch)
-      native.getUnsafeRowsNative(
-        block.getBaseObject,
-        block.getBaseOffset,
-        block.size,
-        arrayAddrs,
-        schemaAddrs)
+      converter(block, arrayAddrs, schemaAddrs)
       rowIter.next()
     }
 
@@ -262,10 +254,14 @@ object CometArrowConverters extends Logging {
   }
 
   def columnarBatchToSparkRowIter(
-                                     colBatch: ColumnarBatch,
-                                     schema: StructType,
-                                     timeZoneId: String,
-                                     context: TaskContext): Iterator[ColumnarBatch] = {
-    new ColumnBatchToArrowBatchIter(colBatch, schema, timeZoneId, context)
+      colBatch: ColumnarBatch,
+      schema: StructType,
+      timeZoneId: String,
+      context: TaskContext,
+      block: MemoryBlock,
+      converter: (MemoryBlock, Array[Long], Array[Long]) => Array[Long])
+      : Iterator[InternalRow] = {
+
+    new ColumnBatchToSparkRowIter(colBatch, schema, timeZoneId, context, block, converter)
   }
 }

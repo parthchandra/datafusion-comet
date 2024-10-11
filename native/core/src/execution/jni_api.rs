@@ -18,10 +18,12 @@
 //! Define JNI APIs which can be called from Java/Scala.
 
 use arrow::datatypes::DataType as ArrowDataType;
-use arrow_array::{make_array, RecordBatch};
+use arrow_array::cast::AsArray;
+use arrow_array::{make_array, Array, ArrayRef, Datum, Int32Array, RecordBatch};
 use arrow_data::ffi::FFI_ArrowArray;
 use arrow_data::ArrayData;
 use arrow_schema::ffi::FFI_ArrowSchema;
+use arrow_schema::{Schema, TimeUnit};
 use datafusion::{
     execution::{
         disk_manager::DiskManagerConfig,
@@ -41,7 +43,7 @@ use jni::{
     JNIEnv,
 };
 use std::rc::Rc;
-use std::{collections::HashMap, sync::Arc, task::Poll};
+use std::{collections::HashMap, mem, sync::Arc, task::Poll};
 
 use super::{serde, utils::SparkArrowConvert, CometMemoryPool};
 
@@ -52,6 +54,7 @@ use crate::{
         serde::to_arrow_datatype, shuffle::row::process_sorted_row_partition, sort::RdxSort,
     },
     jvm_bridge::{jni_new_global_ref, JVMClasses},
+    DataType,
 };
 use datafusion_comet_proto::spark_operator::Operator;
 use datafusion_common::ScalarValue;
@@ -63,7 +66,9 @@ use jni::{
 };
 use tokio::runtime::Runtime;
 
+use crate::errors::CometError::Spark;
 use crate::execution::operators::ScanExec;
+use crate::execution::shuffle::row::SparkUnsafeRow;
 use log::info;
 
 /// Comet native execution context. Kept alive across JNI calls.
@@ -581,14 +586,13 @@ pub extern "system" fn Java_org_apache_comet_Native_sortRowPartitionsNative(
 pub extern "system" fn Java_org_apache_comet_Native_getUnsafeRowsNative(
     e: JNIEnv,
     _class: JClass,
-    _base_object: jobject,
+    base_object: JObject,
     offset: jlong,
     length: jlong,
     array_addrs: jlongArray,
     schema_addrs: jlongArray,
-    size: jlong,
 ) -> jlong {
-    try_unwrap_or_throw(&e, |mut env| {
+    try_unwrap_or_throw(&e, |mut env| unsafe {
         // SAFETY: JVM unsafe memory allocation is aligned with long.
         // let long_array = env.new_long_array(2)?;
 
@@ -605,9 +609,13 @@ pub extern "system" fn Java_org_apache_comet_Native_getUnsafeRowsNative(
         let schema_addrs = &*schema_addrs;
 
         println!(
-            "offset: {:?} length: {:?}, array: {:?}, schema: {:?}, size: {:?}",
-            offset, length, array_addrs, schema_addrs, size
+            "offset: {:?} length: {:?}, array: {:?}, schema: {:?}",
+            offset, length, array_addrs, schema_addrs
         );
+        let mut schema: Vec<ArrowDataType> = Vec::new();
+        let mut arrays: Vec<ArrayRef> = Vec::new();
+
+        let mut num_rows = 0;
         for i in 0..num_cols {
             let array_ptr = array_addrs[i];
             let schema_ptr = schema_addrs[i];
@@ -616,15 +624,105 @@ pub extern "system" fn Java_org_apache_comet_Native_getUnsafeRowsNative(
             // TODO: validate array input data
             // inputs.push(make_array(array_data));
             let array = make_array(array_data);
+            if num_rows == 0 {
+                num_rows = array.len();
+            } else {
+                assert!(array.len() == num_rows)
+            }
             println!("Vector {:?} : {:?}", i, array);
-
+            println!("Vector {:?} : {:?}", i, array.data_type());
+            schema.push(array.data_type().clone());
+            arrays.push(array);
             // Drop the Arcs to avoid memory leak
             unsafe {
                 Rc::from_raw(array_ptr as *const FFI_ArrowArray);
                 Rc::from_raw(schema_ptr as *const FFI_ArrowSchema);
             }
         }
+        println!("num_rows: {}, num_cols: {}", num_rows, num_cols);
+
+        // let base_object_array: JByteArray = base_object.into();
+        // A MemoryBlock object allocated by UnsafeMemoryAllocator has 'null' as the underlying
+        // object, and the address of the allocated memory as the offset.
+        // The base_object passed in is therefore a null pointer and the offset is the raw pointer
+        // to the memory we wish to write to.
+        // let indirect = mem::transmute::<_, *const *const u8>(*base_object + offset);
+
+        // let base_object_ptr = **base_object.as_raw();
+
+        let s = std::slice::from_raw_parts(offset as *const u8, length as usize);
+        println!("MEMORY BLOCK DATA {:?}", s);
+
+        let mut row_start_addr: usize = offset as usize;
+        for i in 0..num_rows {
+            // for j in 0..num_cols {
+            //     let arr = arrays.get(j).unwrap().as_primitive();
+            // }
+            //TODO: Create new Unsafe Row
+            // - get size of row and start addr
+            // - create slice for that part of the buffer
+            // - point row to the slice
+            let mut row = SparkUnsafeRow::new(&schema);
+            let row_size = 8 * num_cols;
+            // let start_addr = (row_start_addr as i64 + row_size as i64) as *const u8;
+            let row_slice = std::slice::from_raw_parts(row_start_addr as *const u8, row_size);
+            row_start_addr = row_start_addr + row_size;
+            row.point_to_slice(row_slice);
+            for j in 0..num_cols {
+                let arr = arrays.get(j).unwrap();
+                let dt = &schema[j];
+                let dt2 = arr.data_type();
+                assert_eq!(dt, dt2);
+                match dt {
+                    ArrowDataType::Boolean => {}
+                    ArrowDataType::Int8 => {}
+                    ArrowDataType::Int16 => {}
+                    ArrowDataType::Int32 => {
+                        let i32_array: Int32Array = arr.as_primitive().clone();
+                        let val = i32_array.value(i);
+                        if i32_array.is_null(i) {
+                            println!("Writing i32 value: {}", "null");
+                            row.set_null_at(j);
+                        } else {
+                            println!("Writing i32 value: {}", val);
+                            row.set_int(j, val);
+                        }
+                    }
+                    ArrowDataType::Int64 => {}
+                    ArrowDataType::Float32 => {}
+                    ArrowDataType::Float64 => {}
+                    ArrowDataType::Timestamp(TimeUnit::Microsecond, _) => {}
+                    ArrowDataType::Date32 => {}
+                    ArrowDataType::Binary => {}
+                    ArrowDataType::Utf8 => {}
+                    ArrowDataType::Decimal128(_, _) => {}
+                    _ => {
+                        unreachable!("Unsupported data type of column: {:?}", dt)
+                    }
+                }
+            }
+        }
+        let s = std::slice::from_raw_parts(offset as *const u8, length as usize);
+        println!("MEMORY BLOCK DATA {:?}", s);
 
         Ok(array_addrs[0]) // Bogus
     })
+}
+
+mod tests {
+    unsafe fn byte_test() {
+        let bb: [u8; 10] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        let bb_ref = &bb as *const u8;
+        let addr = bb_ref as i64;
+
+        let bb_dref = addr as *const u8;
+        let block = bb_dref as *const *const u8;
+
+        let s = std::str::from_utf8_unchecked(std::slice::from_raw_parts(bb_dref, 10));
+
+        println!(
+            "bb: {:?}\nbb_ref: {:?}\naddr: {:?}\nbb_dref: {:?}\nblock: {:?}\ns: {:?}",
+            bb, bb_ref, addr, bb_dref, block, s
+        );
+    }
 }

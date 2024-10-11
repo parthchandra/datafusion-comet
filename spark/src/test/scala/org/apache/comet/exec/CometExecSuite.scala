@@ -1837,40 +1837,44 @@ class CometExecSuite extends CometTestBase {
   }
 
   test("CometColumnarToRowExec ") {
-//    Seq("", "parquet").foreach { v1List =>
-    Seq("parquet").foreach { v1List =>
-      Seq(
-//          "cast(id as tinyint)",
-//          "cast(id as smallint)",
-        "cast(id as integer)"
-//          ,
-//          "cast(id as bigint)",
-//          "cast(id as float)",
-//          "cast(id as double)",
-//          "cast(id as decimal)",
-//          "cast(id as timestamp)",
-//          "cast(id as string)",
-//          "cast(id as binary)"
-      ).foreach { valueType =>
-        {
-          withSQLConf(
-            SQLConf.USE_V1_SOURCE_LIST.key -> v1List,
-            CometConf.COMET_EXEC_ENABLED.key -> "true",
-            CometConf.COMET_EXEC_FILTER_ENABLED.key -> "false",
-            CometConf.COMET_EXEC_SHUFFLE_ENABLED.key -> "false",
-            CometConf.COMET_NATIVE_SCAN_ENABLED.key -> "true") {
-            withTempPath { dir =>
-              var df = spark
-                .range(10000)
-                .selectExpr("id as key", s"$valueType as value")
-                .toDF("key", "value")
+    withTempDir { dir =>
+      val path = new Path(dir.toURI.toString, "c2r.parquet")
+      makeParquetFileAllTypes(path, dictionaryEnabled = false, 10)
+      withParquetTable(path.toString, "tbl") {
+        //    Seq("", "parquet").foreach { v1List =>
+        Seq("parquet").foreach { v1List =>
+          Seq(
+            //          "cast(_4 as tinyint)",
+            //          "cast(_4 as smallint)",
+            "cast(_4 as integer)"
+            //          ,
+            //          "cast(_4 as bigint)",
+            //          "cast(_4 as float)",
+            //          "cast(_4 as double)",
+            //          "cast(_4 as decimal)",
+            //          "cast(_4 as timestamp)",
+//            "cast(_4 as string)"
+            //        ,
+            //          "cast(_4 as binary)"
+          ).foreach { valueType =>
+            {
+              withSQLConf(
+                SQLConf.USE_V1_SOURCE_LIST.key -> v1List,
+                CometConf.COMET_EXEC_ENABLED.key -> "true",
+                CometConf.COMET_EXEC_FILTER_ENABLED.key -> "false",
+                CometConf.COMET_EXEC_SHUFFLE_ENABLED.key -> "false",
+                CometConf.COMET_NATIVE_SCAN_ENABLED.key -> "true") {
+                withTempPath { _ =>
+                  val df = sql(s"select _4 as key, $valueType as value from tbl where _4/2 = 0")
 
-              df.write.parquet(dir.toString)
+                  //              df.write.parquet(dir.toString)
 
-              df = spark.read.parquet(dir.toString).select("*").filter("(key / 2) = 0")
-              val (_, ep) = checkSparkAnswer(df)
-              val explain = ep.simpleString(2)
+//                df = spark.read.parquet(dir.toString).select("*").filter("(key / 2) = 0")
+                  val (_, ep) = checkSparkAnswer(df)
+                  val explain = ep.simpleString(2)
 
+                }
+              }
             }
           }
         }

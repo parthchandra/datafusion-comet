@@ -19,7 +19,6 @@
 
 package org.apache.spark.sql.comet
 
-import scala.collection.JavaConverters._
 import scala.collection.mutable
 
 import org.apache.spark.{SparkConf, SparkEnv, TaskContext}
@@ -30,6 +29,7 @@ import org.apache.spark.sql.catalyst.expressions.{Attribute, SortOrder, UnsafePr
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, CodeGenerator, ExprCode, FalseLiteral, JavaCode}
 import org.apache.spark.sql.catalyst.expressions.codegen.Block._
 import org.apache.spark.sql.catalyst.plans.physical.Partitioning
+import org.apache.spark.sql.comet.execution.arrow.CometArrowConverters
 import org.apache.spark.sql.comet.util.Utils.getUnsafeRowBatchSize
 import org.apache.spark.sql.execution.{CodegenSupport, ColumnarToRowTransition, SparkPlan}
 import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
@@ -39,7 +39,7 @@ import org.apache.spark.unsafe.memory.MemoryBlock
 import org.apache.spark.util.Utils
 
 import org.apache.comet.Native
-import org.apache.comet.vector.{CometVector, NativeUtil}
+import org.apache.comet.vector.CometVector
 
 /**
  * This is currently an identical copy of Spark's ColumnarToRowExec except for removing the
@@ -87,13 +87,13 @@ case class CometColumnarToRowExec(child: SparkPlan)
     val localOutput = this.output
 //    val nativeUtil = new NativeUtil()
 //    val native = new Native()
+    val timeZoneId = conf.sessionLocalTimeZone
+    val schema = child.schema
     val rowRDD = child.executeColumnar().mapPartitionsInternal { batches =>
       val toUnsafe = UnsafeProjection.create(localOutput, localOutput)
       batches.flatMap { batch =>
         numInputBatches += 1
         numOutputRows += batch.numRows()
-
-
 
         // TODO: NATIVE
         // batch.column(i) // get CometVectors from batch, put them in an array
@@ -104,14 +104,17 @@ case class CometColumnarToRowExec(child: SparkPlan)
         // Return iterator over the array
 
         // The following fails because NAtiveUtil is not serializable
-        // FIXME: Create a ArrowBatchToSparkRow Iterator in CometArrowConverters. Move this code to that class
+        // FIXME: Create a ArrowBatchToSparkRow Iterator in CometArrowConverters. Move this
+        //  code to that class
         // TODO: Implement ColumnBatchToSparkRowIter
         // NATIVE
-//        val vectors = mutable.Buffer[CometVector]()
-//        for (i <- 0 to batch.numCols() - 1) {
-//          vectors += batch.column(i).asInstanceOf[CometVector]
-//        }
-//        val block = allocateUnsafeRowBatch(SparkEnv.get.conf, vectors.toArray)
+        val vectors = mutable.Buffer[CometVector]()
+        for (i <- 0 to batch.numCols() - 1) {
+          vectors += batch.column(i).asInstanceOf[CometVector]
+        }
+        val context = TaskContext.get()
+        val block = allocateUnsafeRowBatch(SparkEnv.get.conf, context, vectors.toArray)
+//        block.fill('1')
 //        val (arrayAddrs, schemaAddrs) = nativeUtil.exportColumnarBatch(batch)
 //        native.getUnsafeRowsNative(
 //          block.getBaseObject,
@@ -119,25 +122,46 @@ case class CometColumnarToRowExec(child: SparkPlan)
 //          block.size,
 //          arrayAddrs,
 //          schemaAddrs)
+        CometArrowConverters.columnarBatchToSparkRowIter(
+          batch,
+          schema,
+          timeZoneId,
+          context,
+          block,
+          getUnsafeRowsNative)
 
-
-        // This is the original Spark code that creates an iterator over `ColumnarBatch`
-        // to provide `Iterator[InternalRow]`. The implementation uses a `ColumnarBatchRow`
-        // instance that contains an array of `ColumnVector` which will be instances of
-        // `CometVector`, which in turn is a wrapper around Arrow's `ValueVector`.
-        batch.rowIterator().asScala.map(toUnsafe)
+      // This is the original Spark code that creates an iterator over `ColumnarBatch`
+      // to provide `Iterator[InternalRow]`. The implementation uses a `ColumnarBatchRow`
+      // instance that contains an array of `ColumnVector` which will be instances of
+      // `CometVector`, which in turn is a wrapper around Arrow's `ValueVector`.
+//        batch.rowIterator().asScala.map(toUnsafe)
       }
     }
-    nativeUtil.close()
+//    nativeUtil.close()
     rowRDD
   }
 
-  def allocateUnsafeRowBatch(conf: SparkConf, vectors: Array[CometVector]): MemoryBlock = {
-    val context = TaskContext.get()
+  private def allocateUnsafeRowBatch(
+      conf: SparkConf,
+      context: TaskContext,
+      vectors: Array[CometVector]): MemoryBlock = {
     val blockSize = getUnsafeRowBatchSize(vectors)
     val allocator =
       CometShuffleMemoryAllocator.getInstance(conf, context.taskMemoryManager(), blockSize)
     allocator.allocatePage(blockSize)
+  }
+
+  def getUnsafeRowsNative(
+      block: MemoryBlock,
+      arrayAddrs: Array[Long],
+      schemaAddrs: Array[Long]): Array[Long] = {
+    val native = new Native()
+    native.getUnsafeRowsNative(
+      block.getBaseObject,
+      block.getBaseOffset,
+      block.size,
+      arrayAddrs,
+      schemaAddrs)
   }
 
   /**
@@ -223,7 +247,7 @@ case class CometColumnarToRowExec(child: SparkPlan)
       "// shouldStop check is eliminated"
     }
     val out =
-    s"""
+      s"""
        |if ($batch == null) {
        |  $nextBatchFuncName();
        |}
@@ -240,8 +264,8 @@ case class CometColumnarToRowExec(child: SparkPlan)
        |  $nextBatchFuncName();
        |}
      """.stripMargin
-     System.out.println(out)
-     out
+//    System.out.println(out)
+    out
   }
 
   override def inputRDDs(): Seq[RDD[InternalRow]] = {

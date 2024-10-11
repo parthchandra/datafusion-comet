@@ -17,17 +17,14 @@
 
 //! Utils for supporting native sort-based columnar shuffle.
 
-use crate::{
-    errors::CometError,
-    execution::{
-        datafusion::shuffle_writer::{write_ipc_compressed, Checksum},
-        shuffle::{
-            list::{append_list_element, SparkUnsafeArray},
-            map::{append_map_elements, get_map_key_value_dt, SparkUnsafeMap},
-        },
-        utils::bytes_to_i128,
+use crate::{errors::CometError, execution::{
+    datafusion::shuffle_writer::{write_ipc_compressed, Checksum},
+    shuffle::{
+        list::{append_list_element, SparkUnsafeArray},
+        map::{append_map_elements, get_map_key_value_dt, SparkUnsafeMap},
     },
-};
+    utils::bytes_to_i128,
+}, write_null};
 use arrow::compute::cast;
 use arrow_array::{
     builder::{
@@ -213,13 +210,19 @@ macro_rules! set_value_at {
             $self.set_not_null_at($index);
             let addr = $self.get_element_offset($index, mem::size_of::<$value_type>()) as *mut u8;
             let bytes = $value.to_le_bytes().as_ptr();
+
+            let bytes_as_str = std::str::from_utf8(std::slice::from_raw_parts(bytes, 8));
+            println!(
+                "Setting value at base addr: {}, of type {}, to {:?} ",
+                addr as i64, std::any::type_name::<$value_type>(), bytes_as_str
+            );
             ptr::copy_nonoverlapping(bytes, addr, mem::size_of::<$value_type>());
         }
     };
 }
 
 impl SparkUnsafeRow {
-    fn new(schema: &[DataType]) -> Self {
+    pub(crate) fn new(schema: &[DataType]) -> Self {
         Self {
             row_addr: -1,
             row_size: -1,
