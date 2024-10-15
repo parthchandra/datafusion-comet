@@ -1844,35 +1844,34 @@ class CometExecSuite extends CometTestBase {
         //    Seq("", "parquet").foreach { v1List =>
         Seq("parquet").foreach { v1List =>
           Seq(
-            //          "cast(_4 as tinyint)",
-            //          "cast(_4 as smallint)",
-            "cast(_4 as integer)"
-            //          ,
-            //          "cast(_4 as bigint)",
-            //          "cast(_4 as float)",
-            //          "cast(_4 as double)",
-            //          "cast(_4 as decimal)",
-            //          "cast(_4 as timestamp)",
-//            "cast(_4 as string)"
-            //        ,
-            //          "cast(_4 as binary)"
+            "_1 as bool_value",
+            "_2 as int8_value",
+            "_3 as int16_value",
+            "_4 as int32_value",
+            "_5 as int64_value",
+            "_6 as float_value",
+            "_7 as double_value"
+//            ,
+//            "_8 as utf8_value",
+//            "_15 as decimal_5_2_value",
+//            "_16 as decimal_18_10_value",
+//            "_17 as decimal_38_37_value",
+//            "_18 as timestamp_millis_value",
+//            "_19 as timestamp_micros_value"
           ).foreach { valueType =>
             {
               withSQLConf(
                 SQLConf.USE_V1_SOURCE_LIST.key -> v1List,
                 CometConf.COMET_EXEC_ENABLED.key -> "true",
-                CometConf.COMET_EXEC_FILTER_ENABLED.key -> "false",
+                CometConf.COMET_NATIVE_SCAN_ENABLED.key -> "true",
+                CometConf.COMET_EXEC_PROJECT_ENABLED.key -> "false",
                 CometConf.COMET_EXEC_SHUFFLE_ENABLED.key -> "false",
-                CometConf.COMET_NATIVE_SCAN_ENABLED.key -> "true") {
+                CometConf.COMET_EXEC_NATIVE_COLUMNAR_TO_ROW_ENABLED.key -> "true") {
                 withTempPath { _ =>
-                  val df = sql(s"select _4 as key, $valueType as value from tbl where _4/2 = 0")
-
-                  //              df.write.parquet(dir.toString)
-
-//                df = spark.read.parquet(dir.toString).select("*").filter("(key / 2) = 0")
+                  val df = sql(s"select $valueType from tbl")
+                  println("===> :" + valueType)
                   val (_, ep) = checkSparkAnswer(df)
                   val explain = ep.simpleString(2)
-
                 }
               }
             }

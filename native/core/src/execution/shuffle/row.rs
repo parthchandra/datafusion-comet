@@ -17,14 +17,18 @@
 
 //! Utils for supporting native sort-based columnar shuffle.
 
-use crate::{errors::CometError, execution::{
-    datafusion::shuffle_writer::{write_ipc_compressed, Checksum},
-    shuffle::{
-        list::{append_list_element, SparkUnsafeArray},
-        map::{append_map_elements, get_map_key_value_dt, SparkUnsafeMap},
+use crate::{
+    errors::CometError,
+    execution::{
+        datafusion::shuffle_writer::{write_ipc_compressed, Checksum},
+        shuffle::{
+            list::{append_list_element, SparkUnsafeArray},
+            map::{append_map_elements, get_map_key_value_dt, SparkUnsafeMap},
+        },
+        utils::bytes_to_i128,
     },
-    utils::bytes_to_i128,
-}, write_null};
+    write_null,
+};
 use arrow::compute::cast;
 use arrow_array::{
     builder::{
@@ -211,12 +215,29 @@ macro_rules! set_value_at {
             let addr = $self.get_element_offset($index, mem::size_of::<$value_type>()) as *mut u8;
             let bytes = $value.to_le_bytes().as_ptr();
 
-            let bytes_as_str = std::str::from_utf8(std::slice::from_raw_parts(bytes, 8));
-            println!(
-                "Setting value at base addr: {}, of type {}, to {:?} ",
-                addr as i64, std::any::type_name::<$value_type>(), bytes_as_str
-            );
+            // let bytes_as_str = std::str::from_utf8(std::slice::from_raw_parts(
+            //     bytes,
+            //     mem::size_of::<$value_type>(),
+            // ));
+            // println!(
+            //     "Setting value at base addr: {}, of type {}, to {:?} ",
+            //     addr as i64,
+            //     std::any::type_name::<$value_type>(),
+            //     bytes_as_str
+            // );
             ptr::copy_nonoverlapping(bytes, addr, mem::size_of::<$value_type>());
+        }
+    };
+}
+
+macro_rules! set_value_from_array {
+    ($self:ident, $value_type:ty, $row_index:expr, $col_index: expr, $arr: expr, $row: expr) => {
+        let array: $valueType = $arr.as_primitive().clone();
+        let val = array.value($row_index);
+        if array.is_null($row_index) {
+            $row_index.set_null_at($col_index);
+        } else {
+            $row_index.set_int($col_index, val);
         }
     };
 }
@@ -292,7 +313,7 @@ impl SparkUnsafeRow {
             let mask: i64 = 1i64 << (index & 0x3f);
             let word_offset = (self.row_addr + (((index >> 6) as i64) << 3)) as *mut i64;
             let word: i64 = *word_offset;
-            *word_offset = word | !mask;
+            *word_offset = word | mask;
         }
     }
 

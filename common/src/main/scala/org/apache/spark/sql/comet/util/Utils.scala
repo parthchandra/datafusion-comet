@@ -277,9 +277,9 @@ object Utils {
   // UnsafeRow rows to hold the values of the vectors
   def getUnsafeRowBatchSize(vectors: Array[CometVector]): Long = {
     val bitSetWidth = UnsafeRow.calculateBitSetWidthInBytes(vectors.length)
+    val num_rows = vectors.apply(0).getValueVector.getValueCount
     val dataBytes: Long = vectors
       .map(v => {
-        val num_rows = v.getValueVector.getValueCount
         val dt = fromArrowField(v.getValueVector.getField)
         assert(
           UnsafeRow.isMutable(dt) || dt.isInstanceOf[BinaryType] || dt.isInstanceOf[StringType])
@@ -290,14 +290,14 @@ object Utils {
           case datatype if UnsafeRow.isFixedLength(datatype) => 0L
           case DecimalType.Fixed(_, _) => num_rows * 16L
           case BinaryType | StringType =>
-            v.getValueVector.getDataBuffer.readableBytes
+            num_rows * 8L + v.getValueVector.getDataBuffer.readableBytes
           case _ =>
             throw new UnsupportedOperationException(s"Unsupported data type: ${dt.catalogString}")
         }
         fixedBytes + varBytes
       })
       .sum
-    bitSetWidth + dataBytes
+    num_rows * bitSetWidth + dataBytes
   }
 
 }

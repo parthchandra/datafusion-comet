@@ -19,7 +19,8 @@
 
 package org.apache.spark.sql.comet.execution.arrow
 
-import java.{util => ju}
+import scala.collection.mutable
+import scala.collection.mutable.ArrayBuffer
 
 import org.apache.arrow.memory.{BufferAllocator, RootAllocator}
 import org.apache.arrow.vector.VectorSchemaRoot
@@ -27,6 +28,7 @@ import org.apache.arrow.vector.types.pojo.Schema
 import org.apache.spark.TaskContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.catalyst.expressions.UnsafeRow
 import org.apache.spark.sql.comet.util.Utils
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.vectorized.{ColumnarArray, ColumnarBatch}
@@ -211,12 +213,29 @@ object CometArrowConverters extends Logging {
 
     val nativeUtil = new NativeUtil()
 
-//    val native = new Native()
-
     protected val arrowSchema: Schema = Utils.toArrowSchema(schema, timeZoneId)
     protected val allocator: BufferAllocator =
       rootAllocator.newChildAllocator(s"to${this.getClass.getSimpleName}", 0, Long.MaxValue)
     protected var closed: Boolean = false
+
+    private val unsafeRows = toUnsafeRows
+
+    private def toUnsafeRows: mutable.ArrayBuffer[InternalRow] = {
+      val numRows = colBatch.numRows()
+      val numCols = colBatch.numCols()
+      val rows = ArrayBuffer[InternalRow]()
+      val (arrayAddrs, schemaAddrs) = nativeUtil.exportColumnarBatch(colBatch)
+      val converted = converter(block, arrayAddrs, schemaAddrs)
+      val rowWidth = UnsafeRow.calculateBitSetWidthInBytes(numCols) + 8 * numCols
+      for (rowNum <- 0 until numRows) {
+        // TODO: Make UnsafeRow from the block
+        // Question how to know the starting point of a row given variable length types
+        val row = new UnsafeRow(colBatch.numCols())
+        row.pointTo(block.getBaseObject, block.getBaseOffset + rowNum * rowWidth, rowWidth)
+        rows += row
+      }
+      rows
+    }
 
     Option(context).foreach {
       _.addTaskCompletionListener[Unit] { _ =>
@@ -224,17 +243,18 @@ object CometArrowConverters extends Logging {
       }
     }
 
-    private val rowIter: ju.Iterator[InternalRow] = colBatch.rowIterator()
+//    private val rowIter: ju.Iterator[InternalRow] = colBatch.rowIterator()
+    private val unsafeRowIter: Iterator[InternalRow] = unsafeRows.iterator
 
-    override def hasNext: Boolean = rowIter.hasNext || {
+    override def hasNext: Boolean = unsafeRowIter.hasNext || {
       close(false)
       false
     }
 
     override def next(): InternalRow = {
-      val (arrayAddrs, schemaAddrs) = nativeUtil.exportColumnarBatch(colBatch)
-      converter(block, arrayAddrs, schemaAddrs)
-      rowIter.next()
+      val n = unsafeRowIter.next()
+      logInfo("UNSAFE ROW: " + n)
+      n
     }
 
     override def close(): Unit = {
