@@ -1850,15 +1850,13 @@ class CometExecSuite extends CometTestBase {
             "_4 as int32_value",
             "_5 as int64_value",
             "_6 as float_value",
-            "_7 as double_value"
-//            ,
+            "_7 as double_value",
 //            "_8 as utf8_value",
 //            "_15 as decimal_5_2_value",
 //            "_16 as decimal_18_10_value",
 //            "_17 as decimal_38_37_value",
-//            "_18 as timestamp_millis_value",
-//            "_19 as timestamp_micros_value"
-          ).foreach { valueType =>
+            "_18 as timestamp_millis_value",
+            "_19 as timestamp_micros_value").foreach { valueType =>
             {
               withSQLConf(
                 SQLConf.USE_V1_SOURCE_LIST.key -> v1List,
