@@ -263,16 +263,6 @@ object Utils {
     }
   }
 
-  // Given an array of Comet vectors and the row number calculate the number of bytes required for
-  // an UnsafeRow to hold the values of that row.
-  //  def getUnsafeRowSize(vectors: Array[CometVector], row: Int ): Int = {
-  //    val bitSetWidth = UnsafeRow.calculateBitSetWidthInBytes(vectors.length)
-  //    vectors.map(v => {
-  //      v.getValueVector.ge
-  //    })
-  //
-  //  }
-
   // Given an array of Comet vectors calculate the number of bytes required for a batch of
   // UnsafeRow rows to hold the values of the vectors
   def getUnsafeRowBatchSize(vectors: Array[CometVector]): Long = {
@@ -297,7 +287,7 @@ object Utils {
         fixedBytes + varBytes
       })
       .sum
-    2 * (num_rows * bitSetWidth + dataBytes)
+    num_rows * bitSetWidth + dataBytes
   }
 
 }
