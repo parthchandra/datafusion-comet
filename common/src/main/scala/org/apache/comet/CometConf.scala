@@ -155,7 +155,7 @@ object CometConf extends ShimCometConf {
     conf("spark.comet.exec.nativeColumnarToRow.enabled")
       .doc("Experimental support for native columnar to row for fixed width types")
       .booleanConf
-      .createWithDefault(false)
+      .createWithDefault(true)
 
   val COMET_EXPR_STDDEV_ENABLED: ConfigEntry[Boolean] =
     createExecEnabledConfig(

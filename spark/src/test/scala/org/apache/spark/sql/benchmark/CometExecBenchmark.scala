@@ -222,23 +222,74 @@ object CometExecBenchmark extends CometBenchmarkBase {
     }
   }
 
-  override def runCometBenchmark(mainArgs: Array[String]): Unit = {
-    runBenchmarkWithTable("Subquery", 1024 * 1024 * 10) { v =>
-      subqueryExecBenchmark(v)
-    }
+  def columnarToRowBenchmark(values: Int): Unit = {
 
-    runBenchmarkWithTable("Expand", 1024 * 1024 * 10) { v =>
-      expandExecBenchmark(v)
-    }
+    withTempPath { dir =>
+      Seq(
+        "boolean",
+        "tinyint",
+        "smallint",
+        "integer",
+        "bigint",
+        "float",
+        "double"
+        //          "decimal",
+//        "timestamp"
+        //        ,
+        //          "string",
+        //          "binary"
+      ).foreach { valueType =>
+        {
+          val benchmark = new Benchmark("ColumnarToRowExec", values, output = output)
+          withTempTable("parquetV1Table") {
+            prepareTable(
+              dir,
+              spark.sql(s"SELECT cast(value as $valueType) as ${valueType}_field FROM $tbl"))
 
-    runBenchmarkWithTable("Project + Filter", 1024 * 1024 * 10) { v =>
-      for (fractionOfZeros <- List(0.0, 0.50, 0.95)) {
-        numericFilterExecBenchmark(v, fractionOfZeros)
+            benchmark.addCase(s"Spark Columnar To Row - $valueType") { _ =>
+              withSQLConf(CometConf.COMET_ENABLED.key -> "false") {
+                spark.sql("select * from parquetV1Table ").noop()
+              }
+            }
+
+            benchmark.addCase(s"Comet Columnar To Row - $valueType") { _ =>
+              withSQLConf(
+                CometConf.COMET_ENABLED.key -> "true",
+                CometConf.COMET_EXEC_ENABLED.key -> "true",
+                CometConf.COMET_NATIVE_SCAN_ENABLED.key -> "true",
+                CometConf.COMET_EXEC_PROJECT_ENABLED.key -> "false",
+                CometConf.COMET_EXEC_NATIVE_COLUMNAR_TO_ROW_ENABLED.key -> "true") {
+                spark.sql("select * from parquetV1Table").noop()
+              }
+            }
+            benchmark.run()
+          }
+        }
       }
     }
+  }
 
-    runBenchmarkWithTable("Sort", 1024 * 1024 * 10) { v =>
-      sortExecBenchmark(v)
+  override def runCometBenchmark(mainArgs: Array[String]): Unit = {
+//    runBenchmarkWithTable("Subquery", 1024 * 1024 * 10) { v =>
+//      subqueryExecBenchmark(v)
+//    }
+//
+//    runBenchmarkWithTable("Expand", 1024 * 1024 * 10) { v =>
+//      expandExecBenchmark(v)
+//    }
+//
+//    runBenchmarkWithTable("Project + Filter", 1024 * 1024 * 10) { v =>
+//      for (fractionOfZeros <- List(0.0, 0.50, 0.95)) {
+//        numericFilterExecBenchmark(v, fractionOfZeros)
+//      }
+//    }
+//
+//    runBenchmarkWithTable("Sort", 1024 * 1024 * 10) { v =>
+//      sortExecBenchmark(v)
+//    }
+
+    runBenchmarkWithTable("ColumnToRow", 1024 * 1024 * 10) { v =>
+      columnarToRowBenchmark(v)
     }
   }
 }

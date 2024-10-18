@@ -297,7 +297,7 @@ object Utils {
         fixedBytes + varBytes
       })
       .sum
-    num_rows * bitSetWidth + dataBytes
+    2 * (num_rows * bitSetWidth + dataBytes)
   }
 
 }

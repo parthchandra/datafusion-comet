@@ -18,15 +18,10 @@
 //! Define JNI APIs which can be called from Java/Scala.
 
 use arrow::datatypes::DataType as ArrowDataType;
-use arrow_array::cast::AsArray;
-use arrow_array::{
-    make_array, Array, ArrayRef, BooleanArray, Datum, Float32Array, Float64Array, Int16Array,
-    Int32Array, Int64Array, Int8Array, RecordBatch,
-};
+use arrow_array::{make_array, Array, ArrayRef, RecordBatch};
 use arrow_data::ffi::FFI_ArrowArray;
 use arrow_data::ArrayData;
 use arrow_schema::ffi::FFI_ArrowSchema;
-use arrow_schema::{Schema, TimeUnit};
 use datafusion::{
     execution::{
         disk_manager::DiskManagerConfig,
@@ -46,7 +41,7 @@ use jni::{
     JNIEnv,
 };
 use std::rc::Rc;
-use std::{collections::HashMap, mem, sync::Arc, task::Poll};
+use std::{collections::HashMap, sync::Arc, task::Poll};
 
 use super::{serde, utils::SparkArrowConvert, CometMemoryPool};
 
@@ -57,19 +52,16 @@ use crate::{
         serde::to_arrow_datatype, shuffle::row::process_sorted_row_partition, sort::RdxSort,
     },
     jvm_bridge::{jni_new_global_ref, JVMClasses},
-    DataType,
 };
 use datafusion_comet_proto::spark_operator::Operator;
 use datafusion_common::ScalarValue;
 use futures::stream::StreamExt;
-use jni::sys::jobject;
 use jni::{
     objects::GlobalRef,
     sys::{jboolean, jdouble, jintArray, jobjectArray, jstring},
 };
 use tokio::runtime::Runtime;
 
-use crate::errors::CometError::Spark;
 use crate::execution::operators::ScanExec;
 use crate::execution::shuffle::row::SparkUnsafeRow;
 use log::info;
@@ -591,11 +583,11 @@ pub extern "system" fn Java_org_apache_comet_Native_getUnsafeRowsNative(
     _class: JClass,
     _base_object: JObject,
     offset: jlong,
-    length: jlong,
+    _length: jlong,
     array_addrs: jlongArray,
     schema_addrs: jlongArray,
 ) -> jlong {
-    try_unwrap_or_throw(&e, |mut env| unsafe {
+    try_unwrap_or_throw(&e, |mut env| {
         // SAFETY: JVM unsafe memory allocation is aligned with long.
         // let long_array = env.new_long_array(2)?;
 
@@ -626,7 +618,7 @@ pub extern "system" fn Java_org_apache_comet_Native_getUnsafeRowsNative(
             if num_rows == 0 {
                 num_rows = array.len();
             } else {
-                assert!(array.len() == num_rows)
+                assert_eq!(array.len(), num_rows)
             }
             // println!("Vector {:?} : {:?}", i, array);
             // println!("Vector {:?} : {:?}", i, array.data_type());

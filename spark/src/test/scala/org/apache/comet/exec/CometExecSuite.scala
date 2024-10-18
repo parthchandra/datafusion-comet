@@ -1867,7 +1867,6 @@ class CometExecSuite extends CometTestBase {
                 CometConf.COMET_EXEC_NATIVE_COLUMNAR_TO_ROW_ENABLED.key -> "true") {
                 withTempPath { _ =>
                   val df = sql(s"select $valueType from tbl")
-                  println("===> :" + valueType)
                   val (_, ep) = checkSparkAnswer(df)
                   val explain = ep.simpleString(2)
                 }

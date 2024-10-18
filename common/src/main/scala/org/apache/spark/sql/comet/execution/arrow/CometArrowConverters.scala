@@ -19,20 +19,15 @@
 
 package org.apache.spark.sql.comet.execution.arrow
 
-import scala.collection.mutable
-import scala.collection.mutable.ArrayBuffer
-
 import org.apache.arrow.memory.{BufferAllocator, RootAllocator}
 import org.apache.arrow.vector.VectorSchemaRoot
 import org.apache.arrow.vector.types.pojo.Schema
 import org.apache.spark.TaskContext
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.catalyst.expressions.UnsafeRow
 import org.apache.spark.sql.comet.util.Utils
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.vectorized.{ColumnarArray, ColumnarBatch}
-import org.apache.spark.unsafe.memory.MemoryBlock
 
 import org.apache.comet.vector.NativeUtil
 
@@ -201,6 +196,7 @@ object CometArrowConverters extends Logging {
     new ColumnBatchToArrowBatchIter(colBatch, schema, maxRecordsPerBatch, timeZoneId, context)
   }
 
+  /*
   private[sql] class ColumnBatchToSparkRowIter(
       colBatch: ColumnarBatch,
       schema: StructType,
@@ -251,11 +247,7 @@ object CometArrowConverters extends Logging {
       false
     }
 
-    override def next(): InternalRow = {
-      val n = unsafeRowIter.next()
-      logInfo("UNSAFE ROW: " + n)
-      n
-    }
+    override def next(): InternalRow = unsafeRowIter.next()
 
     override def close(): Unit = {
       close(false)
@@ -265,10 +257,12 @@ object CometArrowConverters extends Logging {
       if (!closed) {
         closed = true
       }
+      // TODO: free the block memory
       // the allocator shall be closed when the task is finished
       if (closeAllocator) {
         allocator.close()
       }
+
     }
 
   }
@@ -284,4 +278,5 @@ object CometArrowConverters extends Logging {
 
     new ColumnBatchToSparkRowIter(colBatch, schema, timeZoneId, context, block, converter)
   }
+   */
 }

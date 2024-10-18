@@ -123,6 +123,7 @@ public final class CometShuffleMemoryAllocator extends MemoryConsumer {
     if (required > TaskMemoryManager.MAXIMUM_PAGE_SIZE_BYTES) {
       throw new TooLargePageException(required);
     }
+    //    System.out.println("Allocated: " + required);
 
     long got = acquireMemory(required);
 
@@ -167,6 +168,7 @@ public final class CometShuffleMemoryAllocator extends MemoryConsumer {
     block.pageNumber = MemoryBlock.FREED_IN_TMM_PAGE_NUMBER;
 
     allocator.free(block);
+    //    System.out.println("Freed: " + block.size());
   }
 
   public synchronized long getAvailableMemory() {

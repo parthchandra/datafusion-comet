@@ -27,7 +27,6 @@ use crate::{
         },
         utils::bytes_to_i128,
     },
-    write_null,
 };
 use arrow::compute::cast;
 use arrow::datatypes::DataType as ArrowDataType;
@@ -40,9 +39,8 @@ use arrow_array::{
         StructBuilder, TimestampMicrosecondBuilder,
     },
     types::Int32Type,
-    Array, ArrayAccessor, ArrayRef, BooleanArray, Date32Array, Float32Array, Float64Array,
-    Int16Array, Int32Array, Int64Array, Int8Array, RecordBatch, RecordBatchOptions,
-    TimestampMicrosecondArray,
+    Array, ArrayRef, Date32Array, Float32Array, Float64Array, Int16Array, Int32Array, Int64Array,
+    Int8Array, RecordBatch, RecordBatchOptions, TimestampMicrosecondArray,
 };
 use arrow_schema::{ArrowError, DataType, Field, Schema, TimeUnit};
 use jni::sys::{jint, jlong};
@@ -218,37 +216,11 @@ macro_rules! set_value_at {
             $self.set_not_null_at($index);
             let addr = $self.get_element_offset($index, mem::size_of::<$value_type>()) as *mut u8;
             let bytes = $value.to_le_bytes().as_ptr();
-
-            // let bytes_as_str = std::str::from_utf8(std::slice::from_raw_parts(
-            //     bytes,
-            //     mem::size_of::<$value_type>(),
-            // ));
-            // println!(
-            //     "Setting value at base addr: {}, of type {}, to {:?} ",
-            //     addr as i64,
-            //     std::any::type_name::<$value_type>(),
-            //     bytes_as_str
-            // );
             ptr::copy_nonoverlapping(bytes, addr, mem::size_of::<$value_type>());
         }
     };
 }
-/*
-macro_rules! set_value_from_array {
-    ($row:ident, $value_type:ty, $arr: expr, $row_index:expr, $col_index: expr, $set_value: expr) => {{
-        // let array: $valueType = $arr.as_primitive().clone();
-        // let array = $arr
-        // let val = $array.value($row_index);
-        let array = $arr.as_ref().as_any().downcast_ref::<$value_type>().expect("Error downcasting");
-        if array.is_null($row_index) {
-            $row.set_null_at($col_index);
-        } else {
-            // $set_value($row, array, $row_index, $col_index)
-            $set_value
-        }
-    }}
-}
-*/
+
 impl SparkUnsafeRow {
     pub(crate) fn new(schema: &[DataType]) -> Self {
         Self {
@@ -278,7 +250,7 @@ impl SparkUnsafeRow {
         }
     }
 
-    pub unsafe fn get_rows_from_arrays(
+    pub fn get_rows_from_arrays(
         schema: Vec<ArrowDataType>,
         arrays: Vec<ArrayRef>,
         num_rows: usize,
@@ -290,40 +262,27 @@ impl SparkUnsafeRow {
             let mut row = SparkUnsafeRow::new(&schema);
             let row_size = SparkUnsafeRow::get_row_bitset_width(schema.len()) + 8 * num_cols;
             // let start_addr = (row_start_addr as i64 + row_size as i64) as *const u8;
-            let row_slice = std::slice::from_raw_parts(row_start_addr as *const u8, row_size);
+            unsafe {
+                row.point_to_slice(std::slice::from_raw_parts(
+                    row_start_addr as *const u8,
+                    row_size,
+                ));
+            }
             row_start_addr = row_start_addr + row_size;
-            row.point_to_slice(row_slice);
             for j in 0..num_cols {
                 let arr = arrays.get(j).unwrap();
                 let dt = &schema[j];
                 assert_eq!(dt, arr.data_type());
-                println!("TYPE: {:?}", dt);
                 match dt {
                     ArrowDataType::Boolean => {
-                        // set_value_from_array!(row, BooleanArray, arr, i, j,
-                        //     |mut row: SparkUnsafeRow, arr: &BooleanArray, i: usize, j: usize| {row.set_boolean(j, arr.value(i))} )
-
-                        // set_value_from_array!(row, BooleanArray, arr, i, j,
-                        //     (|| {row.set_boolean(j, arr.as_boolean().value(i))})() )
-
                         let array = arr.as_boolean();
                         if array.is_null(i) {
                             row.set_null_at(j);
                         } else {
                             row.set_boolean(j, array.value(i));
                         }
-                        // let array = arr.as_ref().as_any().downcast_ref::<BooleanArray>().expect("Error downcasting");
-                        // let val = array.value(i);
-                        // if array.is_null(i) {
-                        //     row.set_null_at(j);
-                        // } else {
-                        //     row.set_boolean(j, val);
-                        // }
                     }
                     ArrowDataType::Int8 => {
-                        // let arr = arr.as_primitive();
-                        // set_value_from_array!(row, Int8Array, arr, i, j,
-                        //     || -> {row.set_byte(j, arr.value(i))})
                         let array: Int8Array = arr.as_primitive().clone();
                         if array.is_null(i) {
                             row.set_null_at(j);
@@ -332,9 +291,6 @@ impl SparkUnsafeRow {
                         }
                     }
                     ArrowDataType::Int16 => {
-                        // let arr = arr.as_primitive();
-                        // set_value_from_array!(row, Int16Array, arr, i, j,
-                        //     || -> {row.set_short(j, arr.value(i))})
                         let array: Int16Array = arr.as_primitive().clone();
                         if array.is_null(i) {
                             row.set_null_at(j);
@@ -343,9 +299,6 @@ impl SparkUnsafeRow {
                         }
                     }
                     ArrowDataType::Int32 => {
-                        // let arr = arr.as_primitive();
-                        // set_value_from_array!(row, Int32Array, arr, i, j,
-                        //     || -> {row.set_int(j, arr.value(i))})
                         let array: Int32Array = arr.as_primitive().clone();
                         if array.is_null(i) {
                             row.set_null_at(j);
@@ -354,9 +307,6 @@ impl SparkUnsafeRow {
                         }
                     }
                     ArrowDataType::Int64 => {
-                        // let arr = arr.as_primitive();
-                        // set_value_from_array!(row, Int64Array, arr, i, j,
-                        //     || -> {row.set_long(j, arr.value(i))})
                         let array: Int64Array = arr.as_primitive().clone();
                         if array.is_null(i) {
                             row.set_null_at(j);
@@ -365,9 +315,6 @@ impl SparkUnsafeRow {
                         }
                     }
                     ArrowDataType::Float32 => {
-                        // let arr = arr.as_primitive();
-                        // set_value_from_array!(row, Float32Array, arr, i, j,
-                        //     || -> {row.set_float(j, arr.value(i))})
                         let array: Float32Array = arr.as_primitive().clone();
                         if array.is_null(i) {
                             row.set_null_at(j);
@@ -376,9 +323,6 @@ impl SparkUnsafeRow {
                         }
                     }
                     ArrowDataType::Float64 => {
-                        // let arr = arr.as_primitive();
-                        // set_value_from_array!(row, Float64Array, arr, i, j,
-                        //     || -> {row.set_double(j, arr.value(i))})
                         let array: Float64Array = arr.as_primitive().clone();
                         if array.is_null(i) {
                             row.set_null_at(j);
@@ -387,14 +331,11 @@ impl SparkUnsafeRow {
                         }
                     }
                     ArrowDataType::Timestamp(TimeUnit::Microsecond, _) => {
-                        // let arr = arr.as_primitive();
-                        // set_value_from_array!(row, Int64Array, arr, i, j,
-                        //     || -> {row.set_long(j, arr.value(i))})
                         let array = arr
                             .as_ref()
                             .as_any()
                             .downcast_ref::<TimestampMicrosecondArray>()
-                            .expect("Error downcasting");
+                            .expect("Error downcasting to Timestamp(Microsecond)");
                         if array.is_null(i) {
                             row.set_null_at(j);
                         } else {
@@ -406,7 +347,7 @@ impl SparkUnsafeRow {
                             .as_ref()
                             .as_any()
                             .downcast_ref::<Date32Array>()
-                            .expect("Error downcasting");
+                            .expect("Error downcasting to Date32");
                         if array.is_null(i) {
                             row.set_null_at(j);
                         } else {
