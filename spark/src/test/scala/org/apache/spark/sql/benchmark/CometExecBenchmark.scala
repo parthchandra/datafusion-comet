@@ -233,11 +233,6 @@ object CometExecBenchmark extends CometBenchmarkBase {
         "bigint",
         "float",
         "double"
-        //          "decimal",
-//        "timestamp"
-        //        ,
-        //          "string",
-        //          "binary"
       ).foreach { valueType =>
         {
           val benchmark = new Benchmark("ColumnarToRowExec", values, output = output)
@@ -270,23 +265,23 @@ object CometExecBenchmark extends CometBenchmarkBase {
   }
 
   override def runCometBenchmark(mainArgs: Array[String]): Unit = {
-//    runBenchmarkWithTable("Subquery", 1024 * 1024 * 10) { v =>
-//      subqueryExecBenchmark(v)
-//    }
-//
-//    runBenchmarkWithTable("Expand", 1024 * 1024 * 10) { v =>
-//      expandExecBenchmark(v)
-//    }
-//
-//    runBenchmarkWithTable("Project + Filter", 1024 * 1024 * 10) { v =>
-//      for (fractionOfZeros <- List(0.0, 0.50, 0.95)) {
-//        numericFilterExecBenchmark(v, fractionOfZeros)
-//      }
-//    }
-//
-//    runBenchmarkWithTable("Sort", 1024 * 1024 * 10) { v =>
-//      sortExecBenchmark(v)
-//    }
+    runBenchmarkWithTable("Subquery", 1024 * 1024 * 10) { v =>
+      subqueryExecBenchmark(v)
+    }
+
+    runBenchmarkWithTable("Expand", 1024 * 1024 * 10) { v =>
+      expandExecBenchmark(v)
+    }
+
+    runBenchmarkWithTable("Project + Filter", 1024 * 1024 * 10) { v =>
+      for (fractionOfZeros <- List(0.0, 0.50, 0.95)) {
+        numericFilterExecBenchmark(v, fractionOfZeros)
+      }
+    }
+
+    runBenchmarkWithTable("Sort", 1024 * 1024 * 10) { v =>
+      sortExecBenchmark(v)
+    }
 
     runBenchmarkWithTable("ColumnToRow", 1024 * 1024 * 10) { v =>
       columnarToRowBenchmark(v)
