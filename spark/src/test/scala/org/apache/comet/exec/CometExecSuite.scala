@@ -1839,7 +1839,7 @@ class CometExecSuite extends CometTestBase {
   test("CometColumnarToRowExec ") {
     withTempDir { dir =>
       val path = new Path(dir.toURI.toString, "c2r.parquet")
-      makeParquetFileAllTypes(path, dictionaryEnabled = false, 10)
+      makeParquetFileAllTypes(path, dictionaryEnabled = false, 10000)
       withParquetTable(path.toString, "tbl") {
         //    Seq("", "parquet").foreach { v1List =>
         Seq("parquet").foreach { v1List =>

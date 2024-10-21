@@ -19,9 +19,7 @@
 
 use arrow::datatypes::DataType as ArrowDataType;
 use arrow_array::{make_array, Array, ArrayRef, RecordBatch};
-use arrow_data::ffi::FFI_ArrowArray;
 use arrow_data::ArrayData;
-use arrow_schema::ffi::FFI_ArrowSchema;
 use datafusion::{
     execution::{
         disk_manager::DiskManagerConfig,
@@ -40,7 +38,6 @@ use jni::{
     sys::{jbyteArray, jint, jlong, jlongArray},
     JNIEnv,
 };
-use std::rc::Rc;
 use std::{collections::HashMap, sync::Arc, task::Poll};
 
 use super::{serde, utils::SparkArrowConvert, CometMemoryPool};
@@ -617,11 +614,6 @@ pub extern "system" fn Java_org_apache_comet_Native_getUnsafeRowsNative(
             }
             schema.push(array.data_type().clone());
             arrays.push(array);
-            // Drop the Arcs to avoid memory leak
-            unsafe {
-                Rc::from_raw(array_ptr as *const FFI_ArrowArray);
-                Rc::from_raw(schema_ptr as *const FFI_ArrowSchema);
-            }
         }
 
         // A MemoryBlock object allocated by UnsafeMemoryAllocator has 'null' as the underlying
