@@ -69,7 +69,7 @@ object CometUnsafeRowIterators extends Logging {
     private def toUnsafeRows: mutable.ArrayBuffer[InternalRow] = {
       val numRows = batch.numRows()
       val numCols = batch.numCols()
-      val rows = ArrayBuffer[InternalRow]()
+      val rows = new ArrayBuffer[InternalRow](numRows)
       val (arrayAddrs, schemaAddrs) = nativeUtil.exportColumnarBatch(batch)
       val converted = getUnsafeRowsNative(block, arrayAddrs, schemaAddrs)
       val rowWidth = UnsafeRow.calculateBitSetWidthInBytes(numCols) + 8 * numCols

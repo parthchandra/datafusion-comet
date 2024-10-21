@@ -408,6 +408,7 @@ impl SparkUnsafeRow {
         }
     }
 
+    #[inline]
     pub fn set_null_at(&mut self, index: usize) {
         unsafe {
             let mask: i64 = 1i64 << (index & 0x3f);
@@ -417,6 +418,7 @@ impl SparkUnsafeRow {
         }
     }
 
+    #[inline]
     pub fn set_boolean(&mut self, index: usize, value: bool) {
         unsafe {
             self.set_not_null_at(index);
@@ -425,26 +427,32 @@ impl SparkUnsafeRow {
         }
     }
 
+    #[inline]
     pub fn set_byte(&mut self, index: usize, value: i8) {
         set_value_at!(self, i8, index, value)
     }
 
+    #[inline]
     pub fn set_short(&mut self, index: usize, value: i16) {
         set_value_at!(self, i16, index, value)
     }
 
+    #[inline]
     pub fn set_int(&mut self, index: usize, value: i32) {
         set_value_at!(self, i32, index, value)
     }
 
+    #[inline]
     pub fn set_long(&mut self, index: usize, value: i64) {
         set_value_at!(self, i64, index, value)
     }
 
+    #[inline]
     pub fn set_float(&mut self, index: usize, value: f32) {
         set_value_at!(self, f64, index, value)
     }
 
+    #[inline]
     pub fn set_double(&mut self, index: usize, value: f64) {
         set_value_at!(self, f64, index, value)
     }
