@@ -135,5 +135,5 @@ class Native extends NativeBase {
       offset: Long,
       length: Long,
       arrayAddrs: Array[Long],
-      schemaAddrs: Array[Long]): Array[Long]
+      schemaAddrs: Array[Long]): Long
 }

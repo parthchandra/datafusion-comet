@@ -600,8 +600,8 @@ pub extern "system" fn Java_org_apache_comet_Native_getUnsafeRowsNative(
             unsafe { env.get_array_elements(&schema_address_array, ReleaseMode::NoCopyBack)? };
         let schema_addrs = &*schema_addrs;
 
-        let mut schema: Vec<ArrowDataType> = Vec::new();
-        let mut arrays: Vec<ArrayRef> = Vec::new();
+        let mut schema: Vec<ArrowDataType> = Vec::with_capacity(num_cols);
+        let mut arrays: Vec<ArrayRef> = Vec::with_capacity(num_cols);
 
         let mut num_rows = 0;
         for i in 0..num_cols {

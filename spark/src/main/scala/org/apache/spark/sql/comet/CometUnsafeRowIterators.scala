@@ -71,11 +71,11 @@ object CometUnsafeRowIterators extends Logging {
       val numCols = batch.numCols()
       val rows = ArrayBuffer[InternalRow]()
       val (arrayAddrs, schemaAddrs) = nativeUtil.exportColumnarBatch(batch)
-      val convertedRowSizes = getUnsafeRowsNative(block, arrayAddrs, schemaAddrs)
+      val converted = getUnsafeRowsNative(block, arrayAddrs, schemaAddrs)
       val rowWidth = UnsafeRow.calculateBitSetWidthInBytes(numCols) + 8 * numCols
       for (rowNum <- 0 until numRows) {
-        // TODO: Make UnsafeRow from the block
-        // Question how to know the starting point of a row given variable length types
+        // TODO: Make UnsafeRow from the block for variable length types
+        // We need the row start offsets for each row.
         val row = new UnsafeRow(batch.numCols())
         row.pointTo(block.getBaseObject, block.getBaseOffset + rowNum * rowWidth, rowWidth)
         rows += row
@@ -102,16 +102,12 @@ object CometUnsafeRowIterators extends Logging {
         closed = true
       }
 
-      if (freeBlock) {
-        allocator.free(block)
-      }
-
     }
 
     def getUnsafeRowsNative(
         block: MemoryBlock,
         arrayAddrs: Array[Long],
-        schemaAddrs: Array[Long]): Array[Long] = {
+        schemaAddrs: Array[Long]): Long = {
       val native = new Native()
       native.getUnsafeRowsNative(
         block.getBaseObject,
