@@ -225,41 +225,34 @@ object CometExecBenchmark extends CometBenchmarkBase {
   def columnarToRowBenchmark(values: Int): Unit = {
 
     withTempPath { dir =>
-      Seq(
-        "boolean",
-        "tinyint",
-        "smallint",
-        "integer",
-        "bigint",
-        "float",
-        "double"
-      ).foreach { valueType =>
-        {
-          val benchmark = new Benchmark("ColumnarToRowExec", values, output = output)
-          withTempTable("parquetV1Table") {
-            prepareTable(
-              dir,
-              spark.sql(s"SELECT cast(value as $valueType) as ${valueType}_field FROM $tbl"))
+      Seq("boolean", "tinyint", "smallint", "integer", "bigint", "float", "double").foreach {
+        valueType =>
+          {
+            val benchmark = new Benchmark("ColumnarToRowExec", values, output = output)
+            withTempTable("parquetV1Table") {
+              prepareTable(
+                dir,
+                spark.sql(s"SELECT cast(value as $valueType) as ${valueType}_field FROM $tbl"))
 
-            benchmark.addCase(s"Spark Columnar To Row - $valueType") { _ =>
-              withSQLConf(CometConf.COMET_ENABLED.key -> "false") {
-                spark.sql("select * from parquetV1Table ").noop()
+              benchmark.addCase(s"Spark Columnar To Row - $valueType") { _ =>
+                withSQLConf(CometConf.COMET_ENABLED.key -> "false") {
+                  spark.sql("select * from parquetV1Table ").noop()
+                }
               }
-            }
 
-            benchmark.addCase(s"Comet Columnar To Row - $valueType") { _ =>
-              withSQLConf(
-                CometConf.COMET_ENABLED.key -> "true",
-                CometConf.COMET_EXEC_ENABLED.key -> "true",
-                CometConf.COMET_NATIVE_SCAN_ENABLED.key -> "true",
-                CometConf.COMET_EXEC_PROJECT_ENABLED.key -> "false",
-                CometConf.COMET_EXEC_NATIVE_COLUMNAR_TO_ROW_ENABLED.key -> "true") {
-                spark.sql("select * from parquetV1Table").noop()
+              benchmark.addCase(s"Comet Columnar To Row - $valueType") { _ =>
+                withSQLConf(
+                  CometConf.COMET_ENABLED.key -> "true",
+                  CometConf.COMET_EXEC_ENABLED.key -> "true",
+                  CometConf.COMET_NATIVE_SCAN_ENABLED.key -> "true",
+                  CometConf.COMET_EXEC_PROJECT_ENABLED.key -> "false",
+                  CometConf.COMET_EXEC_NATIVE_COLUMNAR_TO_ROW_ENABLED.key -> "true") {
+                  spark.sql("select * from parquetV1Table").noop()
+                }
               }
+              benchmark.run()
             }
-            benchmark.run()
           }
-        }
       }
     }
   }
