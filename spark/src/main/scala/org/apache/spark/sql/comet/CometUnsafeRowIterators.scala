@@ -20,7 +20,6 @@
 package org.apache.spark.sql.comet
 
 import scala.collection.mutable
-import scala.collection.mutable.ArrayBuffer
 
 import org.apache.spark.{SparkConf, TaskContext}
 import org.apache.spark.internal.Logging
@@ -66,10 +65,10 @@ object CometUnsafeRowIterators extends Logging {
 
     private val unsafeRows = toUnsafeRows
 
-    private def toUnsafeRows: mutable.ArrayBuffer[InternalRow] = {
+    private def toUnsafeRows: Array[InternalRow] = {
       val numRows = batch.numRows()
       val numCols = batch.numCols()
-      val rows = new ArrayBuffer[InternalRow](numRows)
+      val rows = new Array[InternalRow](numRows)
       val (arrayAddrs, schemaAddrs) = nativeUtil.exportColumnarBatch(batch)
       val converted = getUnsafeRowsNative(block, arrayAddrs, schemaAddrs)
       val rowWidth = UnsafeRow.calculateBitSetWidthInBytes(numCols) + 8 * numCols
@@ -78,7 +77,7 @@ object CometUnsafeRowIterators extends Logging {
         // We need the row start offsets for each row.
         val row = new UnsafeRow(batch.numCols())
         row.pointTo(block.getBaseObject, block.getBaseOffset + rowNum * rowWidth, rowWidth)
-        rows += row
+        rows(rowNum) = row
       }
       rows
     }
