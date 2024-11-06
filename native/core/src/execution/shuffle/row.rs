@@ -51,6 +51,7 @@ use std::{
     str::from_utf8,
     sync::Arc,
 };
+use std::ops::{Deref, DerefMut};
 
 const WORD_SIZE: i64 = 8;
 const MAX_LONG_DIGITS: u8 = 18;
@@ -184,6 +185,7 @@ pub trait SparkUnsafeObject {
     }
 }
 
+#[derive(Debug)]
 pub struct SparkUnsafeRow {
     row_addr: i64,
     row_size: i32,
@@ -258,133 +260,205 @@ impl SparkUnsafeRow {
         num_cols: usize,
         addr: usize,
     ) {
-        let mut row_start_addr: usize = addr;
-        for i in 0..num_rows {
-            let mut row = SparkUnsafeRow::new(&schema);
-            let row_size = SparkUnsafeRow::get_row_bitset_width(schema.len()) + 8 * num_cols;
-            unsafe {
-                row.point_to_slice(std::slice::from_raw_parts(
-                    row_start_addr as *const u8,
-                    row_size,
-                ));
-            }
-            row_start_addr += row_size;
-            for j in 0..num_cols {
-                let arr = arrays.get(j).unwrap();
-                let dt = &schema[j];
-                // assert_eq!(dt, arr.data_type());
-                match dt {
-                    ArrowDataType::Boolean => {
-                        let array = arr.as_boolean();
-                        if array.is_null(i) {
-                            row.set_null_at(j);
-                        } else {
-                            row.set_boolean(j, array.value(i));
-                        }
-                    }
-                    ArrowDataType::Int8 => {
-                        let array = arr
-                            .as_any()
-                            .downcast_ref::<Int8Array>()
-                            .expect("Error downcasting to Int8");
-                        if array.is_null(i) {
-                            row.set_null_at(j);
-                        } else {
-                            row.set_byte(j, array.value(i));
-                        }
-                    }
-                    ArrowDataType::Int16 => {
-                        let array = arr
-                            .as_any()
-                            .downcast_ref::<Int16Array>()
-                            .expect("Error downcasting to Int16");
-                        if array.is_null(i) {
-                            row.set_null_at(j);
-                        } else {
-                            row.set_short(j, array.value(i));
-                        }
-                    }
-                    ArrowDataType::Int32 => {
-                        let array = arr
-                            .as_any()
-                            .downcast_ref::<Int32Array>()
-                            .expect("Error downcasting to Int32");
-                        if array.is_null(i) {
-                            row.set_null_at(j);
-                        } else {
+        // let row_start_addr: usize = addr;
+        // for i in 0..num_rows {
+        //     let mut row = SparkUnsafeRow::new(&schema);
+        //     let row_size = SparkUnsafeRow::get_row_bitset_width(schema.len()) + 8 * num_cols;
+        //     unsafe {
+        //         row.point_to_slice(std::slice::from_raw_parts(
+        //             row_start_addr as *const u8,
+        //             row_size,
+        //         ));
+        //     }
+        //     row_start_addr += row_size;
+
+        let row_fixed_size = SparkUnsafeRow::get_row_bitset_width(schema.len()) + 8 * num_cols;
+        // We should get this from the JVM side
+        let mut row_lengths = vec![0; num_rows];
+        let mut row_start_addrs = vec![0; num_rows];
+        // let mut unsafe_rows: Vec<Box<SparkUnsafeRow>> = Vec::with_capacity(num_rows);
+        row_lengths[0] = row_fixed_size;
+        row_start_addrs[0] = addr;
+        // println!("HERE 1 addr: {}, row_fixed_size = {}", addr, row_fixed_size);
+        for i in 1..num_rows {
+            // println!("HERE 2");
+            row_lengths[i] = row_fixed_size;
+            // println!("HERE 3");
+            row_start_addrs[i] = row_start_addrs[i - 1] + row_lengths[i - 1];
+            // println!("ROW: {}, start: {}, len: {}", i, row_start_addrs[i], row_lengths[i]);
+        }
+        // for i in 0..num_rows {
+        //     let mut row = Box::new(SparkUnsafeRow::new(&schema));
+        //     unsafe {
+        //         row.deref_mut().point_to_slice(std::slice::from_raw_parts(
+        //             row_start_addrs[i] as *const u8,
+        //             row_lengths[i],
+        //         ));
+        //     }
+        //     // println!("HERE 4 - {}", i);
+        //     unsafe_rows.push(row);
+        //     // println!("ROW: {}, start: {}, len: {}, UNSAFEROW: {:?}", i, row_start_addrs[i], row_lengths[i], unsafe_rows[i].deref_mut());
+        // }
+
+        // for i in 0..num_rows {
+        //     let row = unsafe_rows[i].deref_mut();
+        //     // println!("ROW: {}, UNSAFEROW: {:?}", i, row);
+        // }
+
+        for j in 0..num_cols {
+            let arr = arrays.get(j).unwrap();
+            let dt = &schema[j];
+            let mut row = Box::new(SparkUnsafeRow::new(&schema));
+            match dt {
+                // ArrowDataType::Boolean => {
+                //     let array = arr.as_boolean();
+                //     if array.is_null(i) {
+                //         row.set_null_at(j);
+                //     } else {
+                //         row.set_boolean(j, array.value(i));
+                //     }
+                // }
+                // ArrowDataType::Int8 => {
+                //     let array = arr
+                //         .as_any()
+                //         .downcast_ref::<Int8Array>()
+                //         .expect("Error downcasting to Int8");
+                //     if array.is_null(i) {
+                //         row.set_null_at(j);
+                //     } else {
+                //         row.set_byte(j, array.value(i));
+                //     }
+                // }
+                // ArrowDataType::Int16 => {
+                //     let array = arr
+                //         .as_any()
+                //         .downcast_ref::<Int16Array>()
+                //         .expect("Error downcasting to Int16");
+                //     if array.is_null(i) {
+                //         row.set_null_at(j);
+                //     } else {
+                //         row.set_short(j, array.value(i));
+                //     }
+                // }
+                ArrowDataType::Int32 => {
+                    let array = arr
+                        .as_any()
+                        .downcast_ref::<Int32Array>()
+                        .expect("Error downcasting to Int32");
+                    let mut row_start_addr = addr;
+                    if array.null_count() == 0 {
+                        for i in 0..num_rows {
+                                unsafe {
+                                    row.deref_mut().point_to_slice(std::slice::from_raw_parts(
+                                        // row_start_addrs[i] as *const u8,
+                                        // row_lengths[i],
+                                        row_start_addr as *const u8,
+                                        row_fixed_size,
+                                    ));
+                                }
+                            // let row = unsafe_rows[i].deref_mut();
                             row.set_int(j, array.value(i));
+                            // set_value_at!(row, i32, j, array.value(i));
+                            row_start_addr = row_start_addr + row_fixed_size;
+                        }
+                        // if array.is_null(i) {
+                        //     row.set_null_at(j);
+                        // } else {
+                        //     // row.set_int(j, array.value(i));
+                        //     set_value_at!(row, i32, j, array.value(i));
+                        // }
+                    } else {
+                        for i in 0..num_rows {
+                                unsafe {
+                                    row.deref_mut().point_to_slice(std::slice::from_raw_parts(
+                                        // row_start_addrs[i] as *const u8,
+                                        // row_lengths[i],
+                                        row_start_addr as *const u8,
+                                        row_fixed_size,
+                                    ));
+                                }
+                            // let row = unsafe_rows[i].deref_mut();
+                            // println!("ROW: {}, COL: {}, UNSAFEROW: {:?}", i, j, row);
+                            if array.is_null(i) {
+                                row.set_null_at(j);
+                            } else {
+                                row.set_int(j, array.value(i));
+                                // set_value_at!(row, i32, j, array.value(i));
+                            }
+                            row_start_addr = row_start_addr + row_fixed_size;
                         }
                     }
-                    ArrowDataType::Int64 => {
-                        let array = arr
-                            .as_any()
-                            .downcast_ref::<Int64Array>()
-                            .expect("Error downcasting to Int64");
-                        if array.is_null(i) {
-                            row.set_null_at(j);
-                        } else {
-                            row.set_long(j, array.value(i));
-                        }
-                    }
-                    ArrowDataType::Float32 => {
-                        let array = arr
-                            .as_any()
-                            .downcast_ref::<Float32Array>()
-                            .expect("Error downcasting to Float32");
-                        if array.is_null(i) {
-                            row.set_null_at(j);
-                        } else {
-                            row.set_float(j, array.value(i));
-                        }
-                    }
-                    ArrowDataType::Float64 => {
-                        let array = arr
-                            .as_any()
-                            .downcast_ref::<Float64Array>()
-                            .expect("Error downcasting to Float64");
-                        if array.is_null(i) {
-                            row.set_null_at(j);
-                        } else {
-                            row.set_double(j, array.value(i));
-                        }
-                    }
-                    ArrowDataType::Timestamp(TimeUnit::Microsecond, _) => {
-                        let array = arr
-                            .as_any()
-                            .downcast_ref::<TimestampMicrosecondArray>()
-                            .expect("Error downcasting to Timestamp(Microsecond)");
-                        if array.is_null(i) {
-                            row.set_null_at(j);
-                        } else {
-                            row.set_long(j, array.value(i));
-                        }
-                    }
-                    ArrowDataType::Date32 => {
-                        let array = arr
-                            .as_any()
-                            .downcast_ref::<Date32Array>()
-                            .expect("Error downcasting to Date32");
-                        if array.is_null(i) {
-                            row.set_null_at(j);
-                        } else {
-                            row.set_int(j, array.value(i));
-                        }
-                    }
-                    ArrowDataType::Binary => {
-                        //TODO
-                    }
-                    ArrowDataType::Utf8 => {
-                        //TODO
-                    }
-                    ArrowDataType::Decimal128(_, _) => {
-                        //TODO
-                    }
-                    _ => {
-                        unreachable!("Unsupported data type of column: {:?}", dt)
-                    }
+                }
+                // ArrowDataType::Int64 => {
+                //     let array = arr
+                //         .as_any()
+                //         .downcast_ref::<Int64Array>()
+                //         .expect("Error downcasting to Int64");
+                //     if array.is_null(i) {
+                //         row.set_null_at(j);
+                //     } else {
+                //         row.set_long(j, array.value(i));
+                //     }
+                // }
+                // ArrowDataType::Float32 => {
+                //     let array = arr
+                //         .as_any()
+                //         .downcast_ref::<Float32Array>()
+                //         .expect("Error downcasting to Float32");
+                //     if array.is_null(i) {
+                //         row.set_null_at(j);
+                //     } else {
+                //         row.set_float(j, array.value(i));
+                //     }
+                // }
+                // ArrowDataType::Float64 => {
+                //     let array = arr
+                //         .as_any()
+                //         .downcast_ref::<Float64Array>()
+                //         .expect("Error downcasting to Float64");
+                //     if array.is_null(i) {
+                //         row.set_null_at(j);
+                //     } else {
+                //         row.set_double(j, array.value(i));
+                //     }
+                // }
+                // ArrowDataType::Timestamp(TimeUnit::Microsecond, _) => {
+                //     let array = arr
+                //         .as_any()
+                //         .downcast_ref::<TimestampMicrosecondArray>()
+                //         .expect("Error downcasting to Timestamp(Microsecond)");
+                //     if array.is_null(i) {
+                //         row.set_null_at(j);
+                //     } else {
+                //         row.set_long(j, array.value(i));
+                //     }
+                // }
+                // ArrowDataType::Date32 => {
+                //     let array = arr
+                //         .as_any()
+                //         .downcast_ref::<Date32Array>()
+                //         .expect("Error downcasting to Date32");
+                //     if array.is_null(i) {
+                //         row.set_null_at(j);
+                //     } else {
+                //         row.set_int(j, array.value(i));
+                //     }
+                // }
+                // ArrowDataType::Binary => {
+                //     //TODO
+                // }
+                // ArrowDataType::Utf8 => {
+                //     //TODO
+                // }
+                // ArrowDataType::Decimal128(_, _) => {
+                //     //TODO
+                // }
+                _ => {
+                    unreachable!("Unsupported data type of column: {:?}", dt)
                 }
             }
         }
+        // }
     }
 
     /// Points the row to the given slice.

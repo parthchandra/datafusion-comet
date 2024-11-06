@@ -278,8 +278,8 @@ object CometExecBenchmark extends CometBenchmarkBase {
   def columnarToRowBenchmark(values: Int): Unit = {
 
     withTempPath { dir =>
-      Seq("boolean", "tinyint", "smallint", "integer", "bigint", "float", "double").foreach {
-        valueType =>
+      Seq( /*"boolean", "tinyint", "smallint", */ "integer" /*, "bigint", "float", "double"*/ )
+        .foreach { valueType =>
           {
             val benchmark = new Benchmark("ColumnarToRowExec", values, output = output)
             withTempTable("parquetV1Table") {
@@ -306,35 +306,35 @@ object CometExecBenchmark extends CometBenchmarkBase {
               benchmark.run()
             }
           }
-      }
+        }
     }
   }
 
   override def runCometBenchmark(mainArgs: Array[String]): Unit = {
-    runBenchmarkWithTable("Subquery", 1024 * 1024 * 10) { v =>
-      subqueryExecBenchmark(v)
-    }
-
-    runBenchmarkWithTable("Expand", 1024 * 1024 * 10) { v =>
-      expandExecBenchmark(v)
-    }
-
-    runBenchmarkWithTable("Project + Filter", 1024 * 1024 * 10) { v =>
-      for (fractionOfZeros <- List(0.0, 0.50, 0.95)) {
-        numericFilterExecBenchmark(v, fractionOfZeros)
-      }
-    }
-
-    runBenchmarkWithTable("Sort", 1024 * 1024 * 10) { v =>
-      sortExecBenchmark(v)
-    }
-
-    runBenchmarkWithTable("BloomFilterAggregate", 1024 * 1024 * 10) { v =>
-      for (card <- List(100, 1024, 1024 * 1024)) {
-        bloomFilterAggregate(v, card)
-      }
-    }
-
+//    runBenchmarkWithTable("Subquery", 1024 * 1024 * 10) { v =>
+//      subqueryExecBenchmark(v)
+//    }
+//
+//    runBenchmarkWithTable("Expand", 1024 * 1024 * 10) { v =>
+//      expandExecBenchmark(v)
+//    }
+//
+//    runBenchmarkWithTable("Project + Filter", 1024 * 1024 * 10) { v =>
+//      for (fractionOfZeros <- List(0.0, 0.50, 0.95)) {
+//        numericFilterExecBenchmark(v, fractionOfZeros)
+//      }
+//    }
+//
+//    runBenchmarkWithTable("Sort", 1024 * 1024 * 10) { v =>
+//      sortExecBenchmark(v)
+//    }
+//
+//    runBenchmarkWithTable("BloomFilterAggregate", 1024 * 1024 * 10) { v =>
+//      for (card <- List(100, 1024, 1024 * 1024)) {
+//        bloomFilterAggregate(v, card)
+//      }
+//    }
+//
     runBenchmarkWithTable("ColumnToRow", 1024 * 1024 * 10) { v =>
       columnarToRowBenchmark(v)
     }
