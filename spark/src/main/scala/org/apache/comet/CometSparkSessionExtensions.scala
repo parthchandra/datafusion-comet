@@ -200,6 +200,22 @@ class CometSparkSessionExtensions
                 _,
                 _)
               if CometScanExec.isSchemaSupported(requiredSchema)
+                && CometScanExec.isSchemaSupported(partitionSchema)
+                && COMET_FULL_NATIVE_SCAN_ENABLED.get =>
+            logInfo("Comet extension enabled for v1 Scan")
+            CometNativeScanExec(scanExec, session)
+          // data source V1
+          case scanExec @ FileSourceScanExec(
+                HadoopFsRelation(_, partitionSchema, _, _, _: ParquetFileFormat, _),
+                _: Seq[_],
+                requiredSchema,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _)
+              if CometScanExec.isSchemaSupported(requiredSchema)
                 && CometScanExec.isSchemaSupported(partitionSchema) =>
             logInfo("Comet extension enabled for v1 Scan")
             CometScanExec(scanExec, session)
