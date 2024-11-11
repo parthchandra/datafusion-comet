@@ -103,7 +103,7 @@ use datafusion_comet_spark_expr::{
     Cast, CreateNamedStruct, DateTruncExpr, GetArrayStructFields, GetStructField, HourExpr, IfExpr,
     ListExtract, MinuteExpr, RLike, SecondExpr, TimestampTruncExpr, ToJson,
 };
-use datafusion_common::config::TableParquetOptions;
+use datafusion_common::config::{ConfigOptions, TableParquetOptions};
 use datafusion_common::scalar::ScalarStructBuilder;
 use datafusion_common::{
     tree_node::{Transformed, TransformedResult, TreeNode, TreeNodeRecursion, TreeNodeRewriter},
@@ -1030,17 +1030,9 @@ impl PhysicalPlanner {
                         .map(|path| PartitionedFile::from_path(path.path().to_string()).unwrap())
                         .collect();
 
-                    // partition the files
-                    // TODO really should partition the row groups
-
-                    let mut file_groups = vec![vec![]; partition_count];
-                    files.iter().enumerate().for_each(|(idx, file)| {
-                        file_groups[idx % partition_count].push(file.clone());
-                    });
-
                     let file_scan_config =
                         FileScanConfig::new(object_store_url, Arc::clone(&data_schema_arrow))
-                            .with_file_groups(file_groups)
+                            .with_file_groups(vec![files])
                             .with_projection(Some(projection_vector));
 
                     let mut table_parquet_options = TableParquetOptions::new();
@@ -1054,8 +1046,15 @@ impl PhysicalPlanner {
                         builder = builder.with_predicate(filter);
                     }
 
+                    let options = ConfigOptions::default();
                     let scan = builder.build();
-                    return Ok((vec![], Arc::new(scan)));
+
+                    // try and repartition by row group
+                    if let Some(partitioned_scan) = scan.repartitioned(partition_count, &options)? {
+                        return Ok((vec![], partitioned_scan));
+                    } else {
+                        return Ok((vec![], Arc::new(scan)));
+                    }
                 }
 
                 // If it is not test execution context for unit test, we should have at least one
