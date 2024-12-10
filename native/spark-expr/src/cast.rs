@@ -571,7 +571,7 @@ impl SparkCastOptions {
             eval_mode,
             timezone: timezone.to_string(),
             allow_incompat,
-            is_adapting_schema: false,
+            is_adapting_schema: false
         }
     }
 
@@ -582,6 +582,11 @@ impl SparkCastOptions {
             allow_incompat,
             is_adapting_schema: false,
         }
+    }
+
+    pub fn enable_schema_adaption(mut self) -> Self {
+        self.is_adapting_schema = true;
+        self
     }
 }
 
@@ -2087,7 +2092,7 @@ mod tests {
 
         let timezone = "UTC".to_string();
         // test casting string dictionary array to timestamp array
-        let cast_options = SparkCastOptions::new(EvalMode::Legacy, timezone.clone(), false);
+        let cast_options = SparkCastOptions::new(EvalMode::Legacy, &timezone, false);
         let result = cast_array(
             dict_array,
             &DataType::Timestamp(TimeUnit::Microsecond, Some(timezone.clone().into())),
@@ -2296,7 +2301,7 @@ mod tests {
     fn test_cast_unsupported_timestamp_to_date() {
         // Since datafusion uses chrono::Datetime internally not all dates representable by TimestampMicrosecondType are supported
         let timestamps: PrimitiveArray<TimestampMicrosecondType> = vec![i64::MAX].into();
-        let cast_options = SparkCastOptions::new(EvalMode::Legacy, "UTC".to_string(), false);
+        let cast_options = SparkCastOptions::new(EvalMode::Legacy, "UTC", false);
         let result = cast_array(
             Arc::new(timestamps.with_timezone("Europe/Copenhagen")),
             &DataType::Date32,
@@ -2309,7 +2314,7 @@ mod tests {
     fn test_cast_invalid_timezone() {
         let timestamps: PrimitiveArray<TimestampMicrosecondType> = vec![i64::MAX].into();
         let cast_options =
-            SparkCastOptions::new(EvalMode::Legacy, "Not a valid timezone".to_string(), false);
+            SparkCastOptions::new(EvalMode::Legacy, "Not a valid timezone", false);
         let result = cast_array(
             Arc::new(timestamps.with_timezone("Europe/Copenhagen")),
             &DataType::Date32,
@@ -2335,7 +2340,7 @@ mod tests {
         let string_array = cast_array(
             c,
             &DataType::Utf8,
-            &SparkCastOptions::new(EvalMode::Legacy, "UTC".to_owned(), false),
+            &SparkCastOptions::new(EvalMode::Legacy, "UTC", false),
         )
         .unwrap();
         let string_array = string_array.as_string::<i32>();
@@ -2400,10 +2405,9 @@ mod tests {
         let cast_array = spark_cast(
             ColumnarValue::Array(c),
             &DataType::Struct(fields),
-            EvalMode::Legacy,
+            &SparkCastOptions::new(EvalMode::Legacy,
             "UTC",
-            false,
-            false,
+            false)
         )
         .unwrap();
         if let ColumnarValue::Array(cast_array) = cast_array {
