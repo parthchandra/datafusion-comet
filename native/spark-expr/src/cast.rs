@@ -584,10 +584,6 @@ impl SparkCastOptions {
         }
     }
 
-    pub fn enable_schema_adaption(mut self) -> Self {
-        self.is_adapting_schema = true;
-        self
-    }
 }
 
 /// Spark-compatible cast implementation. Defers to DataFusion's cast where that is known
