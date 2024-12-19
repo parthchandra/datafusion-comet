@@ -36,7 +36,7 @@ import org.apache.spark.sql.execution.exchange.{Exchange, ReusedExchangeExec, Va
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.test.TestSparkSession
 
-import org.apache.comet.CometConf
+import org.apache.comet.{CometConf, CometSparkSessionExtensions}
 import org.apache.comet.CometSparkSessionExtensions.{isSpark34Plus, isSpark35Plus, isSpark40Plus}
 
 /**
@@ -264,9 +264,6 @@ trait CometPlanStabilitySuite extends DisableAdaptiveExecutionSuite with TPCDSBa
     // Disable char/varchar read-side handling for better performance.
     withSQLConf(
       CometConf.COMET_ENABLED.key -> "true",
-      CometConf.COMET_NATIVE_SCAN_ENABLED.key -> "true",
-      CometConf.COMET_FULL_NATIVE_SCAN_ENABLED.key -> "false",
-      CometConf.COMET_NATIVE_RECORDBATCH_READER_ENABLED.key -> "true",
       CometConf.COMET_EXEC_ENABLED.key -> "true",
       CometConf.COMET_DPP_FALLBACK_ENABLED.key -> "false",
       CometConf.COMET_EXEC_SHUFFLE_ENABLED.key -> "true",
@@ -274,16 +271,19 @@ trait CometPlanStabilitySuite extends DisableAdaptiveExecutionSuite with TPCDSBa
       CometConf.COMET_CAST_ALLOW_INCOMPATIBLE.key -> "true", // needed for v1.4/q9, v1.4/q44, v2.7.0/q6, v2.7.0/q64
       "spark.sql.readSideCharPadding" -> "false",
       SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key -> "10MB") {
-      val qe = sql(queryString).queryExecution
-      val plan = qe.executedPlan
-      val explain = normalizeLocation(normalizeIds(qe.explainString(FormattedMode)))
+      val scanConf = CometSparkSessionExtensions.selectedCometScan()
+      withSQLConf(scanConf: _*) {
+        val qe = sql(queryString).queryExecution
+        val plan = qe.executedPlan
+        val explain = normalizeLocation(normalizeIds(qe.explainString(FormattedMode)))
 
-      assert(ValidateRequirements.validate(plan))
+        assert(ValidateRequirements.validate(plan))
 
-      if (shouldRegenerateGoldenFiles) {
-        generateGoldenFile(plan, query + suffix, explain)
-      } else {
-        checkWithApproved(plan, query + suffix, explain)
+        if (shouldRegenerateGoldenFiles) {
+          generateGoldenFile(plan, query + suffix, explain)
+        } else {
+          checkWithApproved(plan, query + suffix, explain)
+        }
       }
     }
   }
@@ -298,11 +298,9 @@ trait CometPlanStabilitySuite extends DisableAdaptiveExecutionSuite with TPCDSBa
     conf.set(MEMORY_OFFHEAP_SIZE.key, "2g")
     conf.set(CometConf.COMET_ENABLED.key, "true")
     conf.set(CometConf.COMET_EXEC_ENABLED.key, "true")
-    conf.set(CometConf.COMET_NATIVE_SCAN_ENABLED.key, "true")
-    conf.set(CometConf.COMET_FULL_NATIVE_SCAN_ENABLED.key, "false")
-    conf.set(CometConf.COMET_NATIVE_RECORDBATCH_READER_ENABLED.key, "true")
     conf.set(CometConf.COMET_MEMORY_OVERHEAD.key, "1g")
     conf.set(CometConf.COMET_EXEC_SHUFFLE_ENABLED.key, "true")
+    CometSparkSessionExtensions.setSelectedCometScan(conf)
 
     new TestSparkSession(new SparkContext("local[1]", this.getClass.getCanonicalName, conf))
   }

@@ -1241,6 +1241,35 @@ object CometSparkSessionExtensions extends Logging {
     COMET_NATIVE_SCAN_ENABLED.get(conf)
   }
 
+  def setSelectedCometScan(conf: SparkConf): Unit = {
+    val scanConf = selectedCometScan();
+    scanConf.foreach { (entry) =>
+      conf.set(entry._1, entry._2)
+    }
+  }
+
+  def selectedCometScan(): Seq[(String, String)] = {
+    val scanType = System.getenv("COMET_SCAN_IMPL")
+    if (scanType != null && scanType.nonEmpty && scanType.compareToIgnoreCase(
+        "FULL_NATIVE") == 0) {
+      Seq(
+        CometConf.COMET_NATIVE_SCAN_ENABLED.key -> "false",
+        CometConf.COMET_FULL_NATIVE_SCAN_ENABLED.key -> "true",
+        CometConf.COMET_NATIVE_RECORDBATCH_READER_ENABLED.key -> "false")
+    } else if (scanType != null && scanType.nonEmpty && scanType.compareToIgnoreCase(
+        "NATIVE_RECORD_BATCH") == 0) {
+      Seq(
+        CometConf.COMET_NATIVE_SCAN_ENABLED.key -> "true",
+        CometConf.COMET_FULL_NATIVE_SCAN_ENABLED.key -> "false",
+        CometConf.COMET_NATIVE_RECORDBATCH_READER_ENABLED.key -> "true")
+    } else {
+      Seq(
+        CometConf.COMET_NATIVE_SCAN_ENABLED.key -> "true",
+        CometConf.COMET_FULL_NATIVE_SCAN_ENABLED.key -> "false",
+        CometConf.COMET_NATIVE_RECORDBATCH_READER_ENABLED.key -> "false")
+    }
+  }
+
   private[comet] def isCometExecEnabled(conf: SQLConf): Boolean = {
     COMET_EXEC_ENABLED.get(conf)
   }

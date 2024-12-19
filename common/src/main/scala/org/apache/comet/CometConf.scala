@@ -88,12 +88,11 @@ object CometConf extends ShimCometConf {
     .createWithDefault(true)
 
   val COMET_NATIVE_RECORDBATCH_READER_ENABLED: ConfigEntry[Boolean] = conf(
-    "spark.comet.native.arrow.scan.enabled")
+    "spark.comet.native.recordbatch.reader.enabled")
     .internal()
-    .doc(
-      "Whether to enable the fully native datafusion based column reader. When this is turned on," +
-        " Spark will use Comet to read Parquet files natively via the Datafusion based Parquet" +
-        " reader. By default, this config is false.")
+    .doc("Whether to enable the fully native datafusion based record batch reader. When this is" +
+      "turned on, Spark will use Comet to read Parquet files natively via the Datafusion based" +
+      " Parquet reader. By default, this config is false.")
     .booleanConf
     .createWithDefault(false)
 
