@@ -1254,7 +1254,7 @@ object CometSparkSessionExtensions extends Logging {
         "FULL_NATIVE") == 0) {
       logInfo("Enabling Full Native ")
       Seq(
-        CometConf.COMET_NATIVE_SCAN_ENABLED.key -> "false",
+        CometConf.COMET_NATIVE_SCAN_ENABLED.key -> "true",
         CometConf.COMET_FULL_NATIVE_SCAN_ENABLED.key -> "true",
         CometConf.COMET_NATIVE_RECORDBATCH_READER_ENABLED.key -> "false")
     } else if (scanType != null && scanType.nonEmpty && scanType.compareToIgnoreCase(
