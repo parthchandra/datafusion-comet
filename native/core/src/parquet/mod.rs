@@ -62,6 +62,7 @@ use jni::objects::{JBooleanArray, JByteArray, JLongArray, JPrimitiveArray, JStri
 use jni::sys::jstring;
 use read::ColumnReader;
 use util::jni::{convert_column_descriptor, convert_encoding, deserialize_schema, get_file_path};
+
 /// Parquet read context maintained across multiple JNI calls.
 struct Context {
     pub column_reader: ColumnReader,
