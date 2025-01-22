@@ -50,6 +50,7 @@ use crate::parquet::parquet_support::SparkParquetOptions;
 use crate::parquet::schema_adapter::SparkSchemaAdapterFactory;
 use arrow::buffer::{Buffer, MutableBuffer};
 use arrow_array::{Array, RecordBatch};
+use arrow_schema::{Field, Schema};
 use datafusion::datasource::listing::PartitionedFile;
 use datafusion::datasource::physical_plan::parquet::ParquetExecBuilder;
 use datafusion::datasource::physical_plan::FileScanConfig;
@@ -58,6 +59,7 @@ use datafusion_comet_spark_expr::EvalMode;
 use datafusion_common::config::TableParquetOptions;
 use datafusion_execution::{SendableRecordBatchStream, TaskContext};
 use futures::{poll, StreamExt};
+use itertools::Itertools;
 use jni::objects::{JBooleanArray, JByteArray, JLongArray, JPrimitiveArray, JString, ReleaseMode};
 use jni::sys::jstring;
 use read::ColumnReader;
@@ -638,6 +640,10 @@ pub unsafe extern "system" fn Java_org_apache_comet_parquet_Native_initRecordBat
     length: jlong,
     required_schema: jbyteArray,
     session_timezone: jstring,
+    _use_decimal_128: jboolean,           //TODO: NATIVE_ICEBERG_COMPAT
+    _use_legacy_date_timestamp: jboolean, //TODO: NATIVE_ICEBERG_COMPAT
+    use_native_partition_column_reader: jboolean,
+    partition_schema: jbyteArray,
 ) -> jlong {
     try_unwrap_or_throw(&e, |mut env| unsafe {
         let path: String = env
@@ -659,6 +665,10 @@ pub unsafe extern "system" fn Java_org_apache_comet_parquet_Native_initRecordBat
         let required_schema_array = JByteArray::from_raw(required_schema);
         let required_schema_buffer = env.convert_byte_array(&required_schema_array)?;
         let required_schema_arrow = deserialize_schema(required_schema_buffer.as_bytes())?;
+        let partition_schema_array = JByteArray::from_raw(partition_schema);
+        let partition_schema_buffer = env.convert_byte_array(&partition_schema_array)?;
+        let partition_schema_arrow = deserialize_schema(partition_schema_buffer.as_bytes())?;
+        let use_native_partition_column_reader = use_native_partition_column_reader != 0;
         let mut partitioned_file = PartitionedFile::new_with_range(
             String::new(), // Dummy file path. We will override this with our path so that url encoding does not occur
             file_size as u64,
@@ -666,14 +676,46 @@ pub unsafe extern "system" fn Java_org_apache_comet_parquet_Native_initRecordBat
             start + length,
         );
         partitioned_file.object_meta.location = object_store_path;
+        let partition_fields: Vec<Field> = partition_schema_arrow
+            .fields()
+            .iter()
+            .map(|field| Field::new(field.name(), field.data_type().clone(), field.is_nullable()))
+            .collect_vec();
         // We build the file scan config with the *required* schema so that the reader knows
         // the output schema we want
-        let file_scan_config = FileScanConfig::new(object_store_url, Arc::new(required_schema_arrow))
-                .with_file(partitioned_file)
-                // TODO: (ARROW NATIVE) - do partition columns in native
-                //   - will need partition schema and partition values to do so
-                // .with_table_partition_cols(partition_fields)
-                ;
+        let mut file_scan_config = FileScanConfig::new(object_store_url, Arc::new(required_schema_arrow))
+            .with_file(partitioned_file)
+            // .with_table_partition_cols(partition_fields)
+            ;
+        if use_native_partition_column_reader {
+
+            // Process partition values
+            // Create an empty input schema for partition values because they are all literals.
+            let empty_schema = Arc::new(Schema::empty());
+            let partition_values: Result<Vec<_>, _> = file
+                .partition_values
+                .iter()
+                .map(|partition_value| {
+                    let literal = self.create_expr(
+                        partition_value,
+                        Arc::<Schema>::clone(&empty_schema),
+                    )?;
+                    literal
+                        .as_any()
+                        .downcast_ref::<DataFusionLiteral>()
+                        .ok_or_else(|| {
+                            ExecutionError::GeneralError(
+                                "Expected literal of partition value".to_string(),
+                            )
+                        })
+                        .map(|literal| literal.value().clone())
+                })
+                .collect();
+            let partition_values = partition_values?;
+
+            partitioned_file.partition_values = partition_values;
+            file_scan_config = file_scan_config.with_table_partition_cols(partition_fields);
+        }
         let mut table_parquet_options = TableParquetOptions::new();
         // TODO: Maybe these are configs?
         table_parquet_options.global.pushdown_filters = true;

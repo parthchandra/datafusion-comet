@@ -254,7 +254,11 @@ public final class Native extends NativeBase {
       long start,
       long length,
       byte[] requiredSchema,
-      String sessionTimezone);
+      String sessionTimezone,
+      boolean useDecimal128,
+      boolean useLegacyDateTimestampOrNTZ,
+      boolean usenativePartitionColumnReader,
+      byte[] partitionSchema);
 
   // arrow native version of read batch
   /**

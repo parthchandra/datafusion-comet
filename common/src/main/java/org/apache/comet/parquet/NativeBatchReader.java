@@ -75,12 +75,13 @@ import org.apache.comet.vector.CometVector;
 import org.apache.comet.vector.NativeUtil;
 
 /**
- * A vectorized Parquet reader that reads a Parquet file in a batched fashion.
+ * A native vectorized Parquet reader that reads a Parquet file in a batched fashion. Based on
+ * DataFusion
  *
  * <p>Example of how to use this:
  *
  * <pre>
- *   BatchReader reader = new BatchReader(parquetFile, batchSize);
+ *   NativeBatchReader reader = new NativeBatchReader(parquetFile, batchSize);
  *   try {
  *     reader.init();
  *     while (reader.readBatch()) {
@@ -95,7 +96,7 @@ import org.apache.comet.vector.NativeUtil;
 public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> implements Closeable {
   private static final Logger LOG = LoggerFactory.getLogger(NativeBatchReader.class);
   protected static final BufferAllocator ALLOCATOR = new RootAllocator();
-  private NativeUtil nativeUtil = new NativeUtil();
+  private final NativeUtil nativeUtil = new NativeUtil();
 
   private Configuration conf;
   private int capacity;
@@ -123,7 +124,6 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
    * precision. Normally, this should be true if native execution is enabled, since Arrow compute
    * kernels doesn't support 32 and 64 bit decimals yet.
    */
-  // TODO: (ARROW NATIVE)
   private boolean useDecimal128;
 
   /**
@@ -132,8 +132,9 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
    * to the new Proleptic Gregorian calendar. If this is false, Comet will throw exceptions when
    * seeing these dates/timestamps.
    */
-  // TODO: (ARROW NATIVE)
   private boolean useLegacyDateTimestamp;
+
+  private boolean useNativePartitionColumnReader;
 
   /** The TaskContext object for executing this task. */
   private final TaskContext taskContext;
@@ -224,6 +225,10 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
         conf.getBoolean(
             CometConf.COMET_USE_DECIMAL_128().key(),
             (Boolean) CometConf.COMET_USE_DECIMAL_128().defaultValue().get());
+    useNativePartitionColumnReader =
+        conf.getBoolean(
+            CometConf.COMET_SCAN_ENABLE_NATIVE_PARTITIONREADER().key(),
+            (Boolean) CometConf.COMET_SCAN_ENABLE_NATIVE_PARTITIONREADER().defaultValue().get());
 
     long start = file.start();
     long length = file.length();
@@ -232,7 +237,8 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
 
     requestedSchema = footer.getFileMetaData().getSchema();
     MessageType fileSchema = requestedSchema;
-    // TODO: (ARROW NATIVE) Get requested schema - Convert the Spark schema (from catalyst) into  a
+    // TODO: (NATIVE_ICEBERG_COMPAT) Get requested schema - Convert the Spark schema (from catalyst)
+    // into  a
     // list of fields to project (?). Fields must be matched by field id first  and then by name
     { //////// Get requested Schema -  replace this block of code native (avoid reading the footer
       ParquetReadOptions.Builder builder = HadoopReadOptions.builder(conf, new Path(filePath));
@@ -260,11 +266,12 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
     } ////// End get requested schema
 
     String timeZoneId = conf.get("spark.sql.session.timeZone");
-    Schema arrowSchema = CometArrowUtils.toArrowSchema(sparkSchema, timeZoneId);
-    ByteArrayOutputStream out = new ByteArrayOutputStream();
-    WriteChannel writeChannel = new WriteChannel(Channels.newChannel(out));
-    MessageSerializer.serialize(writeChannel, arrowSchema);
-    byte[] serializedRequestedArrowSchema = out.toByteArray();
+    //    Schema arrowSchema = CometArrowUtils.toArrowSchema(sparkSchema, timeZoneId);
+    //    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    //    WriteChannel writeChannel = new WriteChannel(Channels.newChannel(out));
+    //    MessageSerializer.serialize(writeChannel, arrowSchema);
+    //    byte[] serializedRequestedSchema = out.toByteArray();
+    byte[] serializedRequestedSchema = getSerializableArrowSchema(sparkSchema, timeZoneId);
 
     //// Create Column readers
     List<ColumnDescriptor> columns = requestedSchema.getColumns();
@@ -279,17 +286,13 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
     StructField[] nonPartitionFields = sparkSchema.fields();
     //    ShimFileFormat.findRowIndexColumnIndexInSchema(sparkSchema);
     for (int i = 0; i < requestedSchema.getFieldCount(); i++) {
-      Type t = requestedSchema.getFields().get(i);
-      //      Preconditions.checkState(
-      //          t.isPrimitive() && !t.isRepetition(Type.Repetition.REPEATED),
-      //          "Complex type is not supported");
       String[] colPath = paths.get(i);
       if (nonPartitionFields[i].name().equals(ShimFileFormat.ROW_INDEX_TEMPORARY_COLUMN_NAME())) {
         // Values of ROW_INDEX_TEMPORARY_COLUMN_NAME column are always populated with
         // generated row indexes, rather than read from the file.
         // TODO(SPARK-40059): Allow users to include columns named
         //                    FileFormat.ROW_INDEX_TEMPORARY_COLUMN_NAME in their schemas.
-        // TODO: (ARROW NATIVE) Support row indices ...
+        // TODO: (NATIVE_ICEBERG_COMPAT) Support row indices ...
         //        long[] rowIndices = fileReader.getRowIndices();
         //        columnReaders[i] = new RowIndexColumnReader(nonPartitionFields[i], capacity,
         // rowIndices);
@@ -316,8 +319,10 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
       }
     }
 
+    byte[] serializedPartitionSchema = new byte[0];
+
     // Initialize constant readers for partition columns
-    if (partitionSchema != null) {
+    if (partitionSchema != null && !useNativePartitionColumnReader) {
       StructField[] partitionFields = partitionSchema.fields();
       for (int i = columns.size(); i < columnReaders.length; i++) {
         int fieldIndex = i - columns.size();
@@ -326,6 +331,8 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
             new ConstantColumnReader(field, capacity, partitionValues, fieldIndex, useDecimal128);
         columnReaders[i] = reader;
       }
+    } else {
+      serializedPartitionSchema = getSerializableArrowSchema(partitionSchema, timeZoneId);
     }
 
     vectors = new CometVector[numColumns];
@@ -349,7 +356,16 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
 
     this.handle =
         Native.initRecordBatchReader(
-            filePath, fileSize, start, length, serializedRequestedArrowSchema, timeZoneId);
+            filePath,
+            fileSize,
+            start,
+            length,
+            serializedRequestedSchema,
+            timeZoneId,
+            useDecimal128,
+            useLegacyDateTimestamp,
+            useNativePartitionColumnReader,
+            serializedPartitionSchema);
     isInitialized = true;
   }
 
@@ -430,7 +446,7 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
       totalLoadTime += System.nanoTime() - startNs;
     }
 
-    // TODO: (ARROW NATIVE) Add Metrics
+    // TODO: (NATIVE_ICEBERG_COMPAT) Add Metrics
     //    SQLMetric decodeMetric = metrics.get("ParquetNativeDecodeTime");
     //    if (decodeMetric != null) {
     //      decodeMetric.add(totalDecodeTime);
@@ -461,6 +477,15 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
     Native.closeRecordBatchReader(this.handle);
   }
 
+  private byte[] getSerializableArrowSchema(StructType schema, String timeZoneId)
+      throws IOException {
+    Schema arrowSchema = CometArrowUtils.toArrowSchema(schema, timeZoneId);
+    ByteArrayOutputStream out = new ByteArrayOutputStream();
+    WriteChannel writeChannel = new WriteChannel(Channels.newChannel(out));
+    MessageSerializer.serialize(writeChannel, arrowSchema);
+    return out.toByteArray();
+  }
+
   @SuppressWarnings("deprecation")
   private int loadNextBatch() throws Throwable {
     long startNs = System.nanoTime();
@@ -475,10 +500,9 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
     List<ColumnDescriptor> columns = requestedSchema.getColumns();
     List<Type> fields = requestedSchema.getFields();
     for (int i = 0; i < fields.size(); i++) {
-      // TODO: (ARROW NATIVE) check this. Currently not handling missing columns correctly?
+      // TODO: (NATIVE_ICEBERG_COMPAT) check this. Currently not handling missing columns correctly?
       if (missingColumns[i]) continue;
       if (columnReaders[i] != null) columnReaders[i].close();
-      // TODO: (ARROW NATIVE) handle tz, datetime & int96 rebase
       DataType dataType = sparkSchema.fields()[i].dataType();
       Type field = fields.get(i);
       NativeColumnReader reader =

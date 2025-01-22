@@ -98,6 +98,19 @@ object CometConf extends ShimCometConf {
       .getOrElse("COMET_PARQUET_SCAN_IMPL", SCAN_NATIVE_COMET)
       .toLowerCase(Locale.ROOT))
 
+  val COMET_SCAN_ENABLE_NATIVE_PARTITIONREADER: ConfigEntry[Boolean] =
+    conf("spark.comet.scan.native.partitionreader")
+      .doc(
+        "Enable reading of p[artition columns in native. Used only if scan iomplementation is" +
+          " NATIVE_ICEBERG_COMPAT ")
+      .internal()
+      .booleanConf
+      .createWithDefault(
+        sys.env
+          .getOrElse("COMET_ENABLE_NATIVE_PARTITION_READER", false)
+          .toString
+          .toBoolean)
+
   val COMET_PARQUET_PARALLEL_IO_ENABLED: ConfigEntry[Boolean] =
     conf("spark.comet.parquet.read.parallel.io.enabled")
       .doc(
