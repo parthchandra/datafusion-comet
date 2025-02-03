@@ -33,21 +33,21 @@ edition = "2021"
 rust-version = "1.81"
 
 [workspace.dependencies]
-arrow = { version = "54.0.0", features = ["prettyprint", "ffi", "chrono-tz"] }
-arrow-array = { version = "54.0.0" }
-arrow-buffer = { version = "54.0.0" }
-arrow-data = { version = "54.0.0" }
-arrow-schema = { version = "54.0.0" }
-parquet = { version = "54.0.0", default-features = false, features = ["experimental"] }
-datafusion = { git = "https://github.com/apache/datafusion", rev = "5592834", default-features = false, features = ["unicode_expressions", "crypto_expressions"] }
-datafusion-common = { git = "https://github.com/apache/datafusion", rev = "5592834", default-features = false }
-datafusion-functions = { git = "https://github.com/apache/datafusion", rev = "5592834", default-features = false, features = ["crypto_expressions"] }
-datafusion-functions-nested = { git = "https://github.com/apache/datafusion", rev = "5592834", default-features = false }
-datafusion-expr = { git = "https://github.com/apache/datafusion", rev = "5592834", default-features = false }
-datafusion-expr-common = { git = "https://github.com/apache/datafusion", rev = "5592834", default-features = false }
-datafusion-execution = { git = "https://github.com/apache/datafusion", rev = "5592834", default-features = false }
-datafusion-physical-plan = { git = "https://github.com/apache/datafusion", rev = "5592834", default-features = false }
-datafusion-physical-expr = { git = "https://github.com/apache/datafusion", rev = "5592834", default-features = false }
+arrow = { path = "../../arrow-rs/arrow", features = ["prettyprint", "ffi", "chrono-tz"] }
+arrow-array = { path = "../../arrow-rs/arrow-array" }
+arrow-buffer = {  path = "../../arrow-rs/arrow-buffer"}
+arrow-data = { path = "../../arrow-rs/arrow-data" }
+arrow-schema = { path = "../../arrow-rs/arrow-schema" }
+parquet = { path = "../../arrow-rs/parquet", default-features = false, features = ["experimental"] }
+datafusion = { path = "../../datafusion/datafusion/core", default-features = false, features = ["unicode_expressions", "crypto_expressions"] }
+datafusion-common = { path = "../../datafusion/datafusion/common", default-features = false }
+datafusion-functions = { path = "../../datafusion/datafusion/functions", default-features = false, features = ["crypto_expressions"] }
+datafusion-functions-nested = { path = "../../datafusion/datafusion/functions-nested", default-features = false }
+datafusion-expr = { path = "../../datafusion/datafusion/expr", default-features = false }
+datafusion-expr-common = { path = "../../datafusion/datafusion/expr-common", default-features = false }
+datafusion-execution = { path = "../../datafusion/datafusion/execution", default-features = false }
+datafusion-physical-plan = { path = "../../datafusion/datafusion/physical-plan", default-features = false }
+datafusion-physical-expr = { path = "../../datafusion/datafusion/physical-expr", default-features = false }
 datafusion-comet-spark-expr = { path = "spark-expr", version = "0.6.0" }
 datafusion-comet-proto = { path = "proto", version = "0.6.0" }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
