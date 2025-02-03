@@ -125,6 +125,22 @@ class CometExpressionSuite extends CometTestBase with AdaptiveSparkPlanHelper {
     }
   }
 
+  ignore("uint data type support") {
+    Seq(true, false).foreach { dictionaryEnabled =>
+      withTempDir { dir =>
+        val path = new Path(dir.toURI.toString, "test.parquet")
+        Seq(Byte.MaxValue, Short.MaxValue).foreach {
+          valueRanges => {
+            makeParquetFileUintTypes(path, dictionaryEnabled = dictionaryEnabled, valueRanges + 1)
+            withParquetTable(path.toString, "tbl") {
+              checkSparkAnswerAndOperator("select * FROM tbl order by int32_value")
+            }
+          }
+        }
+      }
+    }
+  }
+
   test("null literals") {
     val batchSize = 1000
     Seq(true, false).foreach { dictionaryEnabled =>

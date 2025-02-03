@@ -744,6 +744,52 @@ abstract class CometTestBase
     expected
   }
 
+  def makeParquetFileUintTypes(path: Path, dictionaryEnabled: Boolean, n: Int): Unit = {
+
+    val begin = -n
+    val end = n
+    val pageSize: Int = 128
+
+    val schemaStr =
+      if (isSpark34Plus) {
+        """
+          |message root {
+          |  optional binary                   string_value(UTF8);
+          |  optional int32                    int32_value;
+          |  optional int32                    uint8_value(UINT_8);
+          |  optional int32                    uint16_value(UINT_16);
+          |}
+        """.stripMargin
+      } else {
+        throw new UnsupportedOperationException("Not supported for older versions of Spark")
+      }
+
+    val schema = MessageTypeParser.parseMessageType(schemaStr)
+    val writer = createParquetWriter(
+      schema,
+      path,
+      dictionaryEnabled = dictionaryEnabled,
+      pageSize = pageSize,
+      dictionaryPageSize = pageSize)
+
+    val data = (begin until end).map { i =>
+      Some(i)
+    }
+    data.foreach { opt =>
+      val record = new SimpleGroup(schema)
+      opt match {
+        case Some(i) =>
+          record.add(0, i.toBinaryString)
+          record.add(1, i)
+          record.add(2, i.toByte)
+          record.add(3, i.toShort)
+        case _ =>
+      }
+      writer.write(record)
+    }
+    writer.close()
+  }
+
   def makeDecimalRDD(num: Int, decimal: DecimalType, useDictionary: Boolean): DataFrame = {
     val div = if (useDictionary) 5 else num // narrow the space to make it dictionary encoded
     spark
