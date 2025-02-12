@@ -40,9 +40,7 @@ use datafusion_comet_spark_expr::{timezone, EvalMode, SparkError, SparkResult};
 use datafusion_common::{cast::as_generic_string_array, Result as DataFusionResult, ScalarValue};
 use datafusion_expr::ColumnarValue;
 // use datafusion_physical_expr::PhysicalExpr;
-use crate::write_null;
 use arrow_array::types::UInt64Type;
-use arrow_schema::DataType::Binary;
 use num::{
     cast::AsPrimitive, integer::div_floor, traits::CheckedNeg, CheckedSub, Integer, Num,
     ToPrimitive,
