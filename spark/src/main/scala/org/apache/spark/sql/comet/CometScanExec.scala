@@ -417,10 +417,11 @@ case class CometScanExec(
       hadoopConf.getBoolean(
         CometConf.COMET_NATIVE_SCAN_ENABLED.key,
         CometConf.COMET_NATIVE_SCAN_ENABLED.defaultValue.get) &&
-        hadoopConf.get(
-            CometConf.COMET_NATIVE_SCAN_IMPL.key,
-            CometConf.COMET_NATIVE_SCAN_IMPL.defaultValueString)
-          .equalsIgnoreCase(CometConf.SCAN_NATIVE_ICEBERG_COMPAT)
+      hadoopConf
+        .get(
+          CometConf.COMET_NATIVE_SCAN_IMPL.key,
+          CometConf.COMET_NATIVE_SCAN_IMPL.defaultValueString)
+        .equalsIgnoreCase(CometConf.SCAN_NATIVE_ICEBERG_COMPAT)
     }
     val prefetchEnabled = hadoopConf.getBoolean(
       CometConf.COMET_SCAN_PREFETCH_ENABLED.key,

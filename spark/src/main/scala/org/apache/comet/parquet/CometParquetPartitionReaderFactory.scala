@@ -76,7 +76,8 @@ case class CometParquetPartitionReaderFactory(
     conf.getBoolean(
       CometConf.COMET_NATIVE_SCAN_ENABLED.key,
       CometConf.COMET_NATIVE_SCAN_ENABLED.defaultValue.get) &&
-    conf.get(
+    conf
+      .get(
         CometConf.COMET_NATIVE_SCAN_IMPL.key,
         CometConf.COMET_NATIVE_SCAN_IMPL.defaultValueString)
       .equalsIgnoreCase(CometConf.SCAN_NATIVE_ICEBERG_COMPAT)
