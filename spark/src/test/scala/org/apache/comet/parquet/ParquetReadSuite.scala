@@ -85,8 +85,8 @@ abstract class ParquetReadSuite extends CometTestBase {
     Seq(
       NullType -> false,
       BooleanType -> true,
-      ByteType -> true,
-      ShortType -> true,
+      ByteType -> !isComplexTypeReaderEnabled(conf),
+      ShortType -> !isComplexTypeReaderEnabled(conf),
       IntegerType -> true,
       LongType -> true,
       FloatType -> true,
@@ -1001,7 +1001,7 @@ abstract class ParquetReadSuite extends CometTestBase {
                 Seq(StructField("_1", LongType, false), StructField("_2", DoubleType, false)))
 
             withParquetDataFrame(data, schema = Some(readSchema)) { df =>
-              if (enableSchemaEvolution) {
+              if (enableSchemaEvolution || isComplexTypeReaderEnabled(conf)) {
                 checkAnswer(df, data.map(Row.fromTuple))
               } else {
                 assertThrows[SparkException](df.collect())
@@ -1162,8 +1162,7 @@ abstract class ParquetReadSuite extends CometTestBase {
   test("row group skipping doesn't overflow when reading into larger type") {
     // Spark 4.0 no longer fails for widening types SPARK-40876
     // https://github.com/apache/spark/commit/3361f25dc0ff6e5233903c26ee105711b79ba967
-    assume(isSpark34Plus && !isSpark40Plus)
-
+    assume(isSpark34Plus && !isSpark40Plus && !isComplexTypeReaderEnabled(conf))
     withTempPath { path =>
       Seq(0).toDF("a").write.parquet(path.toString)
       // Reading integer 'a' as a long isn't supported. Check that an exception is raised instead
