@@ -119,7 +119,7 @@ impl SchemaAdapter for SparkSchemaAdapter {
                     projection.push(file_idx);
                 } else {
                     return plan_err!(
-                        "Cannot cast file schema field {} of type {:?} to required schema field of type {:?}",
+                        "Cannot cast file schema field '{}' of type {:?} to required schema field of type {:?}",
                         file_field.name(),
                         file_field.data_type(),
                         table_field.data_type()
@@ -312,6 +312,7 @@ fn cast_supported(from_type: &DataType, to_type: &DataType, options: &SparkParqu
         {
             true
         }
+        (UInt64, Decimal128(p, s)) => can_convert_from_uint64(to_type, p, s, options),
         (Int8, _) => can_convert_from_byte(to_type, options),
         (Int16, _) => can_convert_from_short(to_type, options),
         (Int32, _) => can_convert_from_int(to_type, options),
@@ -323,6 +324,7 @@ fn cast_supported(from_type: &DataType, to_type: &DataType, options: &SparkParqu
         (Timestamp(_, Some(_)), _) => can_convert_from_timestamp(to_type, options),
         (Utf8 | LargeUtf8, _) => can_convert_from_string(to_type, options),
         (_, Utf8 | LargeUtf8) => can_cast_to_string(from_type, options),
+        (FixedSizeBinary(_), Binary) => true,
         (Struct(from_fields), Struct(to_fields)) => {
             // TODO some of this logic may be specific to converting Parquet to Spark
             let mut field_types = HashMap::new();
@@ -480,6 +482,16 @@ fn can_convert_from_int(to_type: &DataType, options: &SparkParquetOptions) -> bo
         }
         _ => false,
     }
+}
+
+fn can_convert_from_uint64(
+    to_type: &DataType,
+    _p: &u8,
+    _s: &i8,
+    _options: &SparkParquetOptions,
+) -> bool {
+    use DataType::*;
+    matches!(to_type, Decimal128(_p, _s))
 }
 
 fn can_convert_from_long(to_type: &DataType, options: &SparkParquetOptions) -> bool {

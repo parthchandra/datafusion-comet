@@ -40,6 +40,9 @@ use datafusion_comet_spark_expr::{timezone, EvalMode, SparkError, SparkResult};
 use datafusion_common::{cast::as_generic_string_array, Result as DataFusionResult, ScalarValue};
 use datafusion_expr::ColumnarValue;
 // use datafusion_physical_expr::PhysicalExpr;
+use crate::write_null;
+use arrow_array::types::UInt64Type;
+use arrow_schema::DataType::Binary;
 use num::{
     cast::AsPrimitive, integer::div_floor, traits::CheckedNeg, CheckedSub, Integer, Num,
     ToPrimitive,
@@ -632,6 +635,14 @@ fn cast_array(
             cast_string_to_timestamp(&array, to_type, eval_mode, &parquet_options.timezone)
         }
         (Utf8, Date32) => cast_string_to_date(&array, to_type, eval_mode),
+        (FixedSizeBinary(_), Binary) => {
+            let cast_options = CastOptions {
+                // safe: eval_mode == EvalMode::Legacy,
+                safe: !matches!(eval_mode, EvalMode::Ansi),
+                ..Default::default()
+            };
+            Ok(cast_with_options(&array, to_type, &cast_options)?)
+        }
         (Int64, Int32)
         | (Int64, Int16)
         | (Int64, Int8)
@@ -641,6 +652,9 @@ fn cast_array(
             if eval_mode != EvalMode::Try =>
         {
             spark_cast_int_to_int(&array, eval_mode, from_type, to_type)
+        }
+        (UInt64, Decimal128(precision, scale)) => {
+            cast_uint64_to_decimal128(&array, *precision, *scale, eval_mode)
         }
         (Utf8, Int8 | Int16 | Int32 | Int64) => {
             cast_string_to_int::<i32>(to_type, &array, eval_mode)
@@ -785,6 +799,7 @@ fn is_datafusion_spark_compatible(
             // DataFusion only supports binary data containing valid UTF-8 strings
             matches!(to_type, DataType::Utf8)
         }
+        DataType::FixedSizeBinary(_) => matches!(to_type, DataType::Binary),
         _ => false,
     }
 }
@@ -964,6 +979,74 @@ fn cast_string_to_timestamp(
         _ => unreachable!("Invalid data type {:?} in cast from string", to_type),
     };
     Ok(cast_array)
+}
+
+fn cast_uint64_to_decimal128(
+    array: &dyn Array,
+    precision: u8,
+    scale: i8,
+    eval_mode: EvalMode,
+) -> SparkResult<ArrayRef> {
+    cast_uint_to_decimal128::<UInt64Type>(array, precision, scale, eval_mode)
+}
+
+fn cast_uint_to_decimal128<T: ArrowPrimitiveType>(
+    array: &dyn Array,
+    precision: u8,
+    scale: i8,
+    eval_mode: EvalMode,
+) -> SparkResult<ArrayRef>
+where
+    <T as ArrowPrimitiveType>::Native: AsPrimitive<u64>,
+{
+    let input = array.as_any().downcast_ref::<PrimitiveArray<T>>().unwrap();
+    let mut cast_array = PrimitiveArray::<Decimal128Type>::builder(input.len());
+
+    let mul = 10_i64.pow(scale as u32);
+
+    for i in 0..input.len() {
+        if input.is_null(i) {
+            cast_array.append_null();
+        } else {
+            let input_value = input.value(i).as_() as i128;
+            let value = (input_value * mul as i128).to_i128();
+
+            match value {
+                Some(v) => {
+                    if Decimal128Type::validate_decimal_precision(v, precision).is_err() {
+                        if eval_mode == EvalMode::Ansi {
+                            return Err(SparkError::NumericValueOutOfRange {
+                                value: input_value.to_string(),
+                                precision,
+                                scale,
+                            });
+                        } else {
+                            cast_array.append_null();
+                        }
+                    }
+                    cast_array.append_value(v);
+                }
+                None => {
+                    if eval_mode == EvalMode::Ansi {
+                        return Err(SparkError::NumericValueOutOfRange {
+                            value: input_value.to_string(),
+                            precision,
+                            scale,
+                        });
+                    } else {
+                        cast_array.append_null();
+                    }
+                }
+            }
+        }
+    }
+
+    let res = Arc::new(
+        cast_array
+            .with_precision_and_scale(precision, scale)?
+            .finish(),
+    ) as ArrayRef;
+    Ok(res)
 }
 
 fn cast_float64_to_decimal128(
