@@ -97,7 +97,7 @@ abstract class ParquetReadSuite extends CometTestBase {
       StructType(
         Seq(
           StructField("f1", DecimalType.SYSTEM_DEFAULT),
-          StructField("f2", StringType))) -> false,
+          StructField("f2", StringType))) -> isComplexTypeReaderEnabled(conf),
       MapType(keyType = LongType, valueType = DateType) -> false,
       StructType(Seq(StructField("f1", ByteType), StructField("f2", StringType))) -> false,
       MapType(keyType = IntegerType, valueType = BinaryType) -> false).foreach {
@@ -1456,8 +1456,11 @@ class ParquetReadV1Suite extends ParquetReadSuite with AdaptiveSparkPlanHelper {
 class ParquetReadV2Suite extends ParquetReadSuite with AdaptiveSparkPlanHelper {
   override protected def test(testName: String, testTags: Tag*)(testFun: => Any)(implicit
       pos: Position): Unit = {
-    super.test(testName, testTags: _*)(withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> "") {
-      testFun
+    super.test(testName, testTags: _*)(
+      withSQLConf(
+        SQLConf.USE_V1_SOURCE_LIST.key -> "",
+        CometConf.COMET_NATIVE_SCAN_IMPL.key -> CometConf.SCAN_NATIVE_COMET) {
+        testFun
     })(pos)
   }
 
