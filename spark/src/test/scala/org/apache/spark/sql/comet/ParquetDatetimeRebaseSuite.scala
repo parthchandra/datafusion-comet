@@ -145,8 +145,13 @@ class ParquetDatetimeRebaseV1Suite extends ParquetDatetimeRebaseSuite {
 class ParquetDatetimeRebaseV2Suite extends ParquetDatetimeRebaseSuite {
   override protected def test(testName: String, testTags: Tag*)(testFun: => Any)(implicit
       pos: Position): Unit = {
-    super.test(testName, testTags: _*)(withSQLConf(SQLConf.USE_V1_SOURCE_LIST.key -> "") {
-      testFun
-    })(pos)
+    // Datasource V2 is not supported by complex readers so force the scan impl back
+    // to 'native_comet'
+    super.test(testName, testTags: _*)(
+      withSQLConf(
+        SQLConf.USE_V1_SOURCE_LIST.key -> "",
+        CometConf.COMET_NATIVE_SCAN_IMPL.key -> CometConf.SCAN_NATIVE_COMET) {
+        testFun
+      })(pos)
   }
 }
