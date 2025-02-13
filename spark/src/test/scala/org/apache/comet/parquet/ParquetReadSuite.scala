@@ -1461,7 +1461,7 @@ class ParquetReadV2Suite extends ParquetReadSuite with AdaptiveSparkPlanHelper {
         SQLConf.USE_V1_SOURCE_LIST.key -> "",
         CometConf.COMET_NATIVE_SCAN_IMPL.key -> CometConf.SCAN_NATIVE_COMET) {
         testFun
-    })(pos)
+      })(pos)
   }
 
   override def checkParquetScan[T <: Product: ClassTag: TypeTag](
