@@ -740,32 +740,30 @@ abstract class CometColumnarShuffleSuite extends CometTestBase with AdaptiveSpar
       withTempDir { dir =>
         val path = new Path(dir.toURI.toString, "test.parquet")
         makeParquetFileAllTypes(path, false, 10000, 10010)
-        withSQLConf(CometConf.COMET_SCAN_ALLOW_INCOMPATIBLE.key -> "true") {
-          Seq(
-            $"_1",
-            $"_2",
-            $"_3",
-            $"_4",
-            $"_5",
-            $"_6",
-            $"_7",
-            $"_8",
-            $"_9",
-            $"_10",
-            $"_11",
-            $"_12",
-            $"_13",
-            $"_14",
-            $"_15",
-            $"_16",
-            $"_17",
-            $"_18",
-            $"_19",
-            $"_20").foreach { col =>
-            readParquetFile(path.toString) { df =>
-              val shuffled = df.select(col).repartition(numPartitions, col)
-              checkShuffleAnswer(shuffled, 1)
-            }
+        Seq(
+          $"_1",
+          $"_2",
+          $"_3",
+          $"_4",
+          $"_5",
+          $"_6",
+          $"_7",
+          $"_8",
+          $"_9",
+          $"_10",
+          $"_11",
+          $"_12",
+          $"_13",
+          $"_14",
+          $"_15",
+          $"_16",
+          $"_17",
+          $"_18",
+          $"_19",
+          $"_20").foreach { col =>
+          readParquetFile(path.toString) { df =>
+            val shuffled = df.select(col).repartition(numPartitions, col)
+            checkShuffleAnswer(shuffled, 1)
           }
         }
       }
@@ -887,21 +885,19 @@ abstract class CometColumnarShuffleSuite extends CometTestBase with AdaptiveSpar
         val path = new Path(dir.toURI.toString, "test.parquet")
         makeParquetFileAllTypes(path, dictionaryEnabled = dictionaryEnabled, 1000)
 
-        withSQLConf(CometConf.COMET_SCAN_ALLOW_INCOMPATIBLE.key -> "true") {
-          Seq(10, 201).foreach { numPartitions =>
-            (1 to 20).map(i => s"_$i").foreach { c =>
-              readParquetFile(path.toString) { df =>
-                val shuffled = df
-                  .select($"_1")
-                  .repartition(numPartitions, col(c))
-                val cometShuffleExecs = checkCometExchange(shuffled, 1, false)
-                if (numPartitions > 200) {
-                  // For sort-based shuffle writer
-                  cometShuffleExecs(0).shuffleDependency.shuffleHandle.getClass.getName
-                    .contains("CometSerializedShuffleHandle")
-                }
-                checkSparkAnswer(shuffled)
+        Seq(10, 201).foreach { numPartitions =>
+          (1 to 20).map(i => s"_$i").foreach { c =>
+            readParquetFile(path.toString) { df =>
+              val shuffled = df
+                .select($"_1")
+                .repartition(numPartitions, col(c))
+              val cometShuffleExecs = checkCometExchange(shuffled, 1, false)
+              if (numPartitions > 200) {
+                // For sort-based shuffle writer
+                cometShuffleExecs(0).shuffleDependency.shuffleHandle.getClass.getName
+                  .contains("CometSerializedShuffleHandle")
               }
+              checkSparkAnswer(shuffled)
             }
           }
         }

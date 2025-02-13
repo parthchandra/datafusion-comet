@@ -71,8 +71,7 @@ class CometNativeShuffleSuite extends CometTestBase with AdaptiveSparkPlanHelper
           allTypes.map(i => s"_$i").foreach { c =>
             withSQLConf(
               CometConf.COMET_EXEC_ENABLED.key -> execEnabled.toString,
-              "parquet.enable.dictionary" -> dictionaryEnabled.toString,
-              CometConf.COMET_SCAN_ALLOW_INCOMPATIBLE.key -> "true") {
+              "parquet.enable.dictionary" -> dictionaryEnabled.toString) {
               readParquetFile(path.toString) { df =>
                 val shuffled = df
                   .select($"_1")
