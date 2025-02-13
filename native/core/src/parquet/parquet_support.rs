@@ -20,15 +20,12 @@ use arrow::{
     compute::{cast_with_options, take, CastOptions},
     util::display::FormatOptions,
 };
-use arrow_array::types::{Decimal128Type, DecimalType, UInt64Type};
-use arrow_array::{ArrowPrimitiveType, DictionaryArray, PrimitiveArray, StructArray};
+use arrow_array::{DictionaryArray, StructArray};
 use arrow_schema::DataType;
 use datafusion_comet_spark_expr::utils::array_with_timezone;
-use datafusion_comet_spark_expr::{EvalMode, SparkError, SparkResult};
+use datafusion_comet_spark_expr::{EvalMode};
 use datafusion_common::{Result as DataFusionResult, ScalarValue};
 use datafusion_expr::ColumnarValue;
-use num::cast::AsPrimitive;
-use num::ToPrimitive;
 use std::collections::HashMap;
 use std::{fmt::Debug, hash::Hash, sync::Arc};
 
@@ -160,17 +157,6 @@ fn cast_array(
             to_type,
             parquet_options,
         )?),
-        // (UInt64, Decimal128(precision, scale)) => {
-        //     cast_uint64_to_decimal128(&array, *precision, *scale, eval_mode)
-        // }
-        // (FixedSizeBinary(_), Binary) => {
-        //     let cast_options = CastOptions {
-        //         // safe: eval_mode == EvalMode::Legacy,
-        //         safe: !matches!(eval_mode, EvalMode::Ansi),
-        //         ..Default::default()
-        //     };
-        //     Ok(cast_with_options(&array, to_type, &cast_options)?)
-        // }
         _ => Ok(cast_with_options(&array, to_type, &PARQUET_OPTIONS)?),
     }
 }
@@ -209,72 +195,4 @@ fn cast_struct_to_struct(
         }
         _ => unreachable!(),
     }
-}
-
-fn cast_uint64_to_decimal128(
-    array: &dyn Array,
-    precision: u8,
-    scale: i8,
-    eval_mode: EvalMode,
-) -> SparkResult<ArrayRef> {
-    cast_uint_to_decimal128::<UInt64Type>(array, precision, scale, eval_mode)
-}
-
-fn cast_uint_to_decimal128<T: ArrowPrimitiveType>(
-    array: &dyn Array,
-    precision: u8,
-    scale: i8,
-    eval_mode: EvalMode,
-) -> SparkResult<ArrayRef>
-where
-    <T as ArrowPrimitiveType>::Native: AsPrimitive<u64>,
-{
-    let input = array.as_any().downcast_ref::<PrimitiveArray<T>>().unwrap();
-    let mut cast_array = PrimitiveArray::<Decimal128Type>::builder(input.len());
-
-    let mul = 10_i64.pow(scale as u32);
-
-    for i in 0..input.len() {
-        if input.is_null(i) {
-            cast_array.append_null();
-        } else {
-            let input_value = input.value(i).as_() as i128;
-            let value = (input_value * mul as i128).to_i128();
-
-            match value {
-                Some(v) => {
-                    if Decimal128Type::validate_decimal_precision(v, precision).is_err() {
-                        if eval_mode == EvalMode::Ansi {
-                            return Err(SparkError::NumericValueOutOfRange {
-                                value: input_value.to_string(),
-                                precision,
-                                scale,
-                            });
-                        } else {
-                            cast_array.append_null();
-                        }
-                    }
-                    cast_array.append_value(v);
-                }
-                None => {
-                    if eval_mode == EvalMode::Ansi {
-                        return Err(SparkError::NumericValueOutOfRange {
-                            value: input_value.to_string(),
-                            precision,
-                            scale,
-                        });
-                    } else {
-                        cast_array.append_null();
-                    }
-                }
-            }
-        }
-    }
-
-    let res = Arc::new(
-        cast_array
-            .with_precision_and_scale(precision, scale)?
-            .finish(),
-    ) as ArrayRef;
-    Ok(res)
 }
