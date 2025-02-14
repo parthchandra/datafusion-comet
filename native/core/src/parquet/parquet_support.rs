@@ -23,7 +23,7 @@ use arrow::{
 use arrow_array::{DictionaryArray, StructArray};
 use arrow_schema::DataType;
 use datafusion_comet_spark_expr::utils::array_with_timezone;
-use datafusion_comet_spark_expr::{EvalMode};
+use datafusion_comet_spark_expr::EvalMode;
 use datafusion_common::{Result as DataFusionResult, ScalarValue};
 use datafusion_expr::ColumnarValue;
 use std::collections::HashMap;
@@ -148,7 +148,6 @@ fn cast_array(
         _ => array,
     };
     let from_type = array.data_type();
-    let eval_mode = parquet_options.eval_mode;
 
     match (from_type, to_type) {
         (Struct(_), Struct(_)) => Ok(cast_struct_to_struct(
