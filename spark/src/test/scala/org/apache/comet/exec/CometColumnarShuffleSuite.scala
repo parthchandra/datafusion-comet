@@ -20,22 +20,19 @@
 package org.apache.comet.exec
 
 import scala.util.Random
-
 import org.scalactic.source.Position
 import org.scalatest.Tag
-
 import org.apache.hadoop.fs.Path
 import org.apache.spark.{Partitioner, SparkConf}
 import org.apache.spark.sql.{CometTestBase, DataFrame, RandomDataGenerator, Row}
 import org.apache.spark.sql.comet.execution.shuffle.{CometShuffleDependency, CometShuffleExchangeExec, CometShuffleManager}
-import org.apache.spark.sql.execution.adaptive.{AdaptiveSparkPlanHelper, AQEShuffleReadExec, ShuffleQueryStageExec}
+import org.apache.spark.sql.execution.adaptive.{AQEShuffleReadExec, AdaptiveSparkPlanHelper, ShuffleQueryStageExec}
 import org.apache.spark.sql.execution.exchange.ReusedExchangeExec
 import org.apache.spark.sql.execution.joins.SortMergeJoinExec
 import org.apache.spark.sql.functions.col
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.types._
-
-import org.apache.comet.CometConf
+import org.apache.comet.{CometConf, CometSparkSessionExtensions}
 
 abstract class CometColumnarShuffleSuite extends CometTestBase with AdaptiveSparkPlanHelper {
   protected val adaptiveExecutionEnabled: Boolean
@@ -740,27 +737,48 @@ abstract class CometColumnarShuffleSuite extends CometTestBase with AdaptiveSpar
       withTempDir { dir =>
         val path = new Path(dir.toURI.toString, "test.parquet")
         makeParquetFileAllTypes(path, false, 10000, 10010)
-        Seq(
-          $"_1",
-          $"_2",
-          $"_3",
-          $"_4",
-          $"_5",
-          $"_6",
-          $"_7",
-          $"_8",
-          $"_9",
-          $"_10",
-          $"_11",
-          $"_12",
-          $"_13",
-          $"_14",
-          $"_15",
-          $"_16",
-          $"_17",
-          $"_18",
-          $"_19",
-          $"_20").foreach { col =>
+        val fieldsToTest = if (CometSparkSessionExtensions.isComplexTypeReaderEnabled(conf)) {
+          Seq(
+            $"_1",
+            $"_4",
+            $"_5",
+            $"_6",
+            $"_7",
+            $"_8",
+            $"_11",
+            $"_12",
+            $"_13",
+            $"_14",
+            $"_15",
+            $"_16",
+            $"_17",
+            $"_18",
+            $"_19",
+            $"_20")
+        } else {
+          Seq(
+            $"_1",
+            $"_2",
+            $"_3",
+            $"_4",
+            $"_5",
+            $"_6",
+            $"_7",
+            $"_8",
+            $"_9",
+            $"_10",
+            $"_11",
+            $"_12",
+            $"_13",
+            $"_14",
+            $"_15",
+            $"_16",
+            $"_17",
+            $"_18",
+            $"_19",
+            $"_20")
+        }
+        fieldsToTest.foreach { col =>
           readParquetFile(path.toString) { df =>
             val shuffled = df.select(col).repartition(numPartitions, col)
             checkShuffleAnswer(shuffled, 1)
