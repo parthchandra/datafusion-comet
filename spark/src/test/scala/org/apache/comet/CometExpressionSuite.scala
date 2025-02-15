@@ -117,7 +117,9 @@ class CometExpressionSuite extends CometTestBase with AdaptiveSparkPlanHelper {
     Seq(true, false).foreach { dictionaryEnabled =>
       withTempDir { dir =>
         val path = new Path(dir.toURI.toString, "test.parquet")
-        makeParquetFileAllTypes(path, dictionaryEnabled = dictionaryEnabled, 10000)
+        withSQLConf(CometConf.COMET_SCAN_ALLOW_INCOMPATIBLE.key -> "false") {
+          makeParquetFileAllTypes(path, dictionaryEnabled = dictionaryEnabled, 10000)
+        }
         withParquetTable(path.toString, "tbl") {
           checkSparkAnswerAndOperator("select * FROM tbl WHERE _2 > 100")
         }
@@ -1275,7 +1277,8 @@ class CometExpressionSuite extends CometTestBase with AdaptiveSparkPlanHelper {
           randomSize = 100)
         withSQLConf(CometConf.COMET_SCAN_ALLOW_INCOMPATIBLE.key -> "true") {
           withParquetTable(path.toString, "tbl") {
-            for (s <- Seq(-5, -1, 0, 1, 5, -1000, 1000, -323, -308, 308, -15, 15, -16, 16, null)) {
+            for (s <- Seq(-5, -1, 0, 1, 5, -1000, 1000, -323, -308, 308, -15, 15, -16, 16,
+                null)) {
               // array tests
               // TODO: enable test for floats (_6, _7, _8, _13)
               for (c <- Seq(2, 3, 4, 5, 9, 10, 11, 12, 15, 16, 17)) {
@@ -1288,7 +1291,8 @@ class CometExpressionSuite extends CometTestBase with AdaptiveSparkPlanHelper {
               withSQLConf(
                 "spark.sql.optimizer.excludedRules" -> "org.apache.spark.sql.catalyst.optimizer.ConstantFolding") {
                 for (n <- Seq("0.0", "-0.0", "0.5", "-0.5", "1.2", "-1.2")) {
-                  checkSparkAnswerAndOperator(s"select round(cast(${n} as tinyint), ${s}) FROM tbl")
+                  checkSparkAnswerAndOperator(
+                    s"select round(cast(${n} as tinyint), ${s}) FROM tbl")
                   // checkSparkAnswerAndCometOperators(s"select round(cast(${n} as float), ${s}) FROM tbl")
                   checkSparkAnswerAndOperator(
                     s"select round(cast(${n} as decimal(38, 18)), ${s}) FROM tbl")

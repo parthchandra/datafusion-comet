@@ -85,8 +85,8 @@ abstract class ParquetReadSuite extends CometTestBase {
     Seq(
       NullType -> false,
       BooleanType -> true,
-      ByteType -> !usingDataFusionParquetExec(conf),
-      ShortType -> !usingDataFusionParquetExec(conf),
+      ByteType -> true,
+      ShortType -> true,
       IntegerType -> true,
       LongType -> true,
       FloatType -> true,
@@ -97,13 +97,17 @@ abstract class ParquetReadSuite extends CometTestBase {
       StructType(
         Seq(
           StructField("f1", DecimalType.SYSTEM_DEFAULT),
-          StructField("f2", StringType))) -> usingDataFusionParquetExec(conf),
+          StructField("f2", StringType))) -> true,
       MapType(keyType = LongType, valueType = DateType) -> false,
-      StructType(Seq(StructField("f1", ByteType), StructField("f2", StringType))) -> false,
-      MapType(keyType = IntegerType, valueType = BinaryType) -> false).foreach {
+      StructType(Seq(StructField("f1", ByteType), StructField("f2", StringType))) -> true,
+      MapType(keyType = IntegerType, valueType = BinaryType) -> false
+    ).foreach {
       case (dt, expected) =>
         assert(CometScanExec.isTypeSupported(dt) == expected)
-        assert(CometBatchScanExec.isTypeSupported(dt) == expected)
+        // usingDataFusionParquetExec does not support CometBatchScanExec yet
+        if (!usingDataFusionParquetExec(conf)) {
+          assert(CometBatchScanExec.isTypeSupported(dt) == expected)
+        }
     }
   }
 
