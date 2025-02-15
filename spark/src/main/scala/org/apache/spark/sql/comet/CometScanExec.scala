@@ -413,7 +413,7 @@ case class CometScanExec(
       readFile: (PartitionedFile) => Iterator[InternalRow],
       partitions: Seq[FilePartition]): RDD[InternalRow] = {
     val hadoopConf = relation.sparkSession.sessionState.newHadoopConfWithOptions(relation.options)
-    val isComplexReaderEnabled: Boolean = {
+    val usingDataFusionReader: Boolean = {
       hadoopConf.getBoolean(
         CometConf.COMET_NATIVE_SCAN_ENABLED.key,
         CometConf.COMET_NATIVE_SCAN_ENABLED.defaultValue.get) &&
@@ -426,7 +426,7 @@ case class CometScanExec(
     val prefetchEnabled = hadoopConf.getBoolean(
       CometConf.COMET_SCAN_PREFETCH_ENABLED.key,
       CometConf.COMET_SCAN_PREFETCH_ENABLED.defaultValue.get) &&
-      !isComplexReaderEnabled
+      !usingDataFusionReader
 
     val sqlConf = fsRelation.sparkSession.sessionState.conf
     if (prefetchEnabled) {

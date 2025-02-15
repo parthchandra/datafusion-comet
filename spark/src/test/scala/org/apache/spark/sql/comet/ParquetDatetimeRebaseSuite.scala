@@ -51,7 +51,7 @@ abstract class ParquetDatetimeRebaseSuite extends CometTestBase {
           // Parquet file written by 2.4.5 should throw exception for both Spark and Comet
           // For Spark 4.0+, Parquet file written by 2.4.5 should not throw exception
           if ((exceptionOnRebase || sparkVersion == "2_4_5") && (!isSpark40Plus || sparkVersion != "2_4_5") && !CometSparkSessionExtensions
-              .isComplexTypeReaderEnabled(conf)) {
+              .usingDataFusionParquetExec(conf)) {
             intercept[SparkException](df.collect())
           } else {
             checkSparkNoRebaseAnswer(df)
@@ -75,7 +75,7 @@ abstract class ParquetDatetimeRebaseSuite extends CometTestBase {
             // Parquet file written by 2.4.5 should throw exception for both Spark and Comet
             // For Spark 4.0+, Parquet file written by 2.4.5 should not throw exception
             if ((exceptionOnRebase || sparkVersion == "2_4_5") && (!isSpark40Plus || sparkVersion != "2_4_5") && !CometSparkSessionExtensions
-                .isComplexTypeReaderEnabled(conf)) {
+                .usingDataFusionParquetExec(conf)) {
               intercept[SparkException](df.collect())
             } else {
               checkSparkNoRebaseAnswer(df)
@@ -100,7 +100,7 @@ abstract class ParquetDatetimeRebaseSuite extends CometTestBase {
             // Parquet file written by 2.4.5 should throw exception for both Spark and Comet
             // For Spark 4.0+, Parquet file written by 2.4.5 should not throw exception
             if ((exceptionOnRebase || sparkVersion == "2_4_5") && (!isSpark40Plus || sparkVersion != "2_4_5") && !CometSparkSessionExtensions
-                .isComplexTypeReaderEnabled(conf)) {
+                .usingDataFusionParquetExec(conf)) {
               intercept[SparkException](df.collect())
             } else {
               checkSparkNoRebaseAnswer(df)
