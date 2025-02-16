@@ -100,8 +100,7 @@ abstract class ParquetReadSuite extends CometTestBase {
           StructField("f2", StringType))) -> true,
       MapType(keyType = LongType, valueType = DateType) -> false,
       StructType(Seq(StructField("f1", ByteType), StructField("f2", StringType))) -> true,
-      MapType(keyType = IntegerType, valueType = BinaryType) -> false
-    ).foreach {
+      MapType(keyType = IntegerType, valueType = BinaryType) -> false).foreach {
       case (dt, expected) =>
         assert(CometScanExec.isTypeSupported(dt) == expected)
         // usingDataFusionParquetExec does not support CometBatchScanExec yet
