@@ -159,9 +159,9 @@ abstract class Tables(
           val grouped = sqlContext.sql(query)
           println(s"Pre-clustering with partitioning columns with query $query.")
           log.info(s"Pre-clustering with partitioning columns with query $query.")
-          grouped.write
+          grouped.writeTo(name)
         } else {
-          data.write
+          data.writeTo(name)
         }
       } else {
         // treat non-partitioned tables as "one partition" that we want to coalesce
@@ -182,21 +182,23 @@ abstract class Tables(
             val numFiles = (numRows.toDouble / maxRecordPerFile).ceil.toInt
             println(s"Coalescing into $numFiles files")
             log.info(s"Coalescing into $numFiles files")
-            data.coalesce(numFiles).write
+            data.coalesce(numFiles).writeTo(name)
           } else {
-            data.coalesce(1).write
+            data.coalesce(1).writeTo(name)
           }
         } else {
-          data.write
+          data.writeTo(name)
         }
       }
-      writer.format(format).mode(mode)
-      if (partitionColumns.nonEmpty) {
-        writer.partitionBy(partitionColumns: _*)
-      }
+//      writer.format(format).mode(mode)
+//      if (partitionColumns.nonEmpty) {
+//        writer.partitionBy(partitionColumns: _*)
+//      }
       println(s"Generating table $name in database to $location with save mode $mode.")
       log.info(s"Generating table $name in database to $location with save mode $mode.")
-      writer.save(location)
+//      writer.save(location)
+      writer.append()
+
       sqlContext.dropTempTable(tempTableName)
     }
   }

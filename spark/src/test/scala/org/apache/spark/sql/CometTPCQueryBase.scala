@@ -47,6 +47,12 @@ trait CometTPCQueryBase extends Logging {
       .set("spark.executor.memory", "3g")
       .set("spark.sql.autoBroadcastJoinThreshold", (20 * 1024 * 1024).toString)
       .set("spark.sql.crossJoin.enabled", "true")
+      .set("spark.sql.crossJoin.enabled", "true")
+      .set("spark.comet.exec.replaceSortMergeJoin", "true")
+      .set("spark.comet.exec.shuffle.enabled", "true")
+      .set("spark.comet.exec.shuffle.mode", "native")
+      .set("spark.comet.exec.shuffle.fallbackToColumnar", "true")
+      .set("spark.comet.exec.shuffle.compression.codec", "lz4")
       .setIfMissing("parquet.enable.dictionary", "true")
       .set(
         "spark.shuffle.manager",
@@ -61,7 +67,7 @@ trait CometTPCQueryBase extends Logging {
     sparkSession.conf.set(SQLConf.PARQUET_VECTORIZED_READER_ENABLED.key, "true")
     sparkSession.conf.set(SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key, "true")
     sparkSession.conf.set(CometConf.COMET_ENABLED.key, "false")
-    sparkSession.conf.set(CometConf.COMET_EXEC_ENABLED.key, "false")
+    sparkSession.conf.set(CometConf.COMET_EXEC_ENABLED.key, "true")
 
     sparkSession
   }

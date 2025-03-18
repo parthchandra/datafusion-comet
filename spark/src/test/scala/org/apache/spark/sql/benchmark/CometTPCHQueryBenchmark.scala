@@ -47,7 +47,7 @@ object CometTPCHQueryBenchmark extends CometTPCQueryBenchmarkBase {
     val benchmarkArgs = new TPCHQueryBenchmarkArguments(mainArgs)
 
     // List of all TPC-H queries
-    val tpchQueries = (1 to 22).map(n => s"q$n")
+    val tpchQueries = (2 to 2).map(n => s"q$n")
 
     // If `--query-filter` defined, filters the queries that this option selects
     val queries = filterQueries(tpchQueries, benchmarkArgs.queryFilter)
