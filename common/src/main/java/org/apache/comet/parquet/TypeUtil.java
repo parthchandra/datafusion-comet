@@ -371,7 +371,10 @@ public class TypeUtil {
         return false;
       }
     } else {
-      return false; // one is a primitive type and the other is not.
+      // One is a primitive type and the other is not.
+      // Throw a schema conversion exception
+      throw new SchemaColumnConvertNotSupportedException(
+          requested.toString(), actual.getName(), requested.getName());
     }
     return true;
   }
