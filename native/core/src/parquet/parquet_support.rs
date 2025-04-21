@@ -29,6 +29,7 @@ use datafusion::common::{Result as DataFusionResult, ScalarValue};
 use datafusion::execution::object_store::ObjectStoreUrl;
 use datafusion::execution::runtime_env::RuntimeEnv;
 use datafusion::physical_plan::ColumnarValue;
+use datafusion_comet_spark_expr::utils::array_with_timezone;
 use datafusion_comet_spark_expr::EvalMode;
 use object_store::path::Path;
 use object_store::{parse_url, ObjectStore};
@@ -129,6 +130,16 @@ fn cast_array(
     parquet_options: &SparkParquetOptions,
 ) -> DataFusionResult<ArrayRef> {
     use DataType::*;
+    let array = match to_type {
+        Timestamp(_, None) => array, // array_with_timezone does not support to_type of NTZ.
+        List(f) => {
+            match f.data_type() {
+                Timestamp(_, None) => array, // array_with_timezone does not support to_type of NTZ.
+                _ => array_with_timezone(array, parquet_options.timezone.clone(), Some(to_type))?,
+            }
+        } // array_with_timezone does not support to_type of NTZ.
+        _ => array_with_timezone(array, parquet_options.timezone.clone(), Some(to_type))?,
+    };
     let from_type = array.data_type().clone();
 
     let array = match &from_type {
