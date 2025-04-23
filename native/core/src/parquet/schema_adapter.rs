@@ -22,6 +22,7 @@ use arrow::array::{new_null_array, RecordBatch, RecordBatchOptions};
 use arrow::datatypes::{Schema, SchemaRef};
 use datafusion::datasource::schema_adapter::{SchemaAdapter, SchemaAdapterFactory, SchemaMapper};
 use datafusion::physical_plan::ColumnarValue;
+use log::debug;
 use std::sync::Arc;
 
 /// An implementation of DataFusion's `SchemaAdapterFactory` that uses a Spark-compatible
@@ -191,6 +192,8 @@ impl SchemaMapper for SchemaMapping {
         let batch_rows = batch.num_rows();
         let batch_cols = batch.columns().to_vec();
 
+        debug!("map_batch:: required_schema {:?}", self.required_schema);
+        debug!("map_batch:: field_mappings {:?}", self.field_mappings);
         let cols = self
             .required_schema
             // go through each field in the projected schema
