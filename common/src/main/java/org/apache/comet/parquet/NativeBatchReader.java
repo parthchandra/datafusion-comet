@@ -25,7 +25,6 @@ import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.nio.channels.Channels;
 import java.util.*;
 
@@ -50,7 +49,6 @@ import org.apache.hadoop.mapreduce.TaskAttemptContext;
 import org.apache.parquet.HadoopReadOptions;
 import org.apache.parquet.ParquetReadOptions;
 import org.apache.parquet.Preconditions;
-import org.apache.parquet.column.ColumnDescriptor;
 import org.apache.parquet.hadoop.metadata.BlockMetaData;
 import org.apache.parquet.hadoop.metadata.ParquetMetadata;
 import org.apache.parquet.schema.MessageType;
@@ -61,8 +59,11 @@ import org.apache.spark.executor.TaskMetrics;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.comet.parquet.CometParquetReadSupport;
 import org.apache.spark.sql.comet.util.Utils$;
+import org.apache.spark.sql.errors.QueryExecutionErrors;
 import org.apache.spark.sql.execution.datasources.PartitionedFile;
+import org.apache.spark.sql.execution.datasources.SchemaColumnConvertNotSupportedException;
 import org.apache.spark.sql.execution.datasources.parquet.ParquetToSparkSchemaConverter;
+import org.apache.spark.sql.execution.datasources.parquet.SparkToParquetSchemaConverter;
 import org.apache.spark.sql.execution.metric.SQLMetric;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.StructField;
@@ -229,7 +230,7 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
    * Initialize this reader. The reason we don't do it in the constructor is that we want to close
    * any resource hold by this reader when error happens during the initialization.
    */
-  public void init() throws URISyntaxException, IOException {
+  public void init() throws Throwable {
 
     useDecimal128 =
         conf.getBoolean(
@@ -262,9 +263,23 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
       if (sparkSchema == null) {
         sparkSchema = new ParquetToSparkSchemaConverter(conf).convert(requestedSchema);
       } else {
-        requestedSchema =
+        conf.set("spark.sql.parquet.writeLegacyFormat", useLegacyDateTimestamp ? "true" : "false");
+        conf.set("spark.sql.parquet.outputTimestampType", "TIMESTAMP_MICROS");
+        conf.set("spark.sql.parquet.fieldId.write.enabled", useFieldId ? "true" : "false");
+        SparkToParquetSchemaConverter converter = new SparkToParquetSchemaConverter(conf);
+        MessageType sparkSchemaAsMessage = converter.convert(sparkSchema);
+        MessageType clippedSchema =
             CometParquetReadSupport.clipParquetSchema(
                 requestedSchema, sparkSchema, isCaseSensitive, useFieldId, ignoreMissingIds);
+
+        try {
+          // isEqual will throw an exception if the schema is not compatible
+          isEqual(sparkSchemaAsMessage, clippedSchema);
+          requestedSchema = clippedSchema;
+        } catch (SchemaColumnConvertNotSupportedException e) {
+          throw QueryExecutionErrors.unsupportedSchemaColumnConvertError(
+              path.toString(), e.getColumn(), e.getLogicalType(), e.getPhysicalType(), e);
+        }
         if (requestedSchema.getFieldCount() != sparkSchema.size()) {
           throw new IllegalArgumentException(
               String.format(
@@ -532,7 +547,6 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
     if (importer != null) importer.close();
     importer = new CometSchemaImporter(ALLOCATOR);
 
-    List<ColumnDescriptor> columns = requestedSchema.getColumns();
     List<Type> fields = requestedSchema.getFields();
     for (int i = 0; i < fields.size(); i++) {
       if (!missingColumns[i]) {

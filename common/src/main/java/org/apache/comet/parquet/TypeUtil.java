@@ -330,12 +330,14 @@ public class TypeUtil {
   }
 
   // From Parquet Type.java
-  public static boolean equals(Type one, Type other) {
-    return one.getName().equals(other.getName())
-        && one.getRepetition() == other.getRepetition()
-        && eqOrBothNull(one.getRepetition(), other.getRepetition())
-        && eqOrBothNull(one.getId(), other.getId())
-        && eqOrBothNull(one.getLogicalTypeAnnotation(), other.getLogicalTypeAnnotation());
+  public static boolean equals(Type requested, Type actual) {
+    return requested.getName().equals(actual.getName())
+        // requested type is optional and actual is not repeated or both are required or repeated
+        && ((requested.getRepetition() == Type.Repetition.OPTIONAL
+                && actual.getRepetition() != Type.Repetition.REPEATED)
+            || eqOrBothNull(requested.getRepetition(), actual.getRepetition()))
+        && eqOrBothNull(requested.getId(), actual.getId())
+        && eqOrBothNull(requested.getLogicalTypeAnnotation(), actual.getLogicalTypeAnnotation());
   }
 
   //
@@ -348,27 +350,31 @@ public class TypeUtil {
       return true;
     }
     if (requested == null || actual == null) {
-      return false;
-    }
-    if (requested.isPrimitive() && actual.isPrimitive()) {
-      return requested.asPrimitiveType().equals(actual.asPrimitiveType());
+      // One is null the other is not
+      throw new SchemaColumnConvertNotSupportedException(
+          requested.toString(), actual.getName(), requested.getName());
+    } else if (requested.isPrimitive() && actual.isPrimitive()) {
+      return equals(requested.asPrimitiveType(), actual.asPrimitiveType());
     } else if (!requested.isPrimitive() && !actual.isPrimitive()) {
       if (equals(requested, actual)) {
         // GroupType.equals also checks if LogicalTypeAnnotation is the same.
         // But it really is not necessary here.
         List<Type> requestedFields = requested.asGroupType().getFields();
-        List<Type> actualFields = requested.asGroupType().getFields();
+        List<Type> actualFields = actual.asGroupType().getFields();
         for (Type field : requestedFields) {
           Optional<Type> optActualField =
               actualFields.stream().filter(f -> f.getName().equals(field.getName())).findFirst();
           if (optActualField.isPresent()) {
             if (!isEqual(field, optActualField.get())) {
-              return false;
+              throw new SchemaColumnConvertNotSupportedException(
+                  requested.toString(), actual.getName(), requested.getName());
             }
           }
         }
       } else {
-        return false;
+        // both are non primitive but are not the same
+        throw new SchemaColumnConvertNotSupportedException(
+            requested.toString(), actual.getName(), requested.getName());
       }
     } else {
       // One is a primitive type and the other is not.
