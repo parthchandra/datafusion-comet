@@ -49,6 +49,7 @@ import org.apache.hadoop.mapreduce.TaskAttemptContext;
 import org.apache.parquet.HadoopReadOptions;
 import org.apache.parquet.ParquetReadOptions;
 import org.apache.parquet.Preconditions;
+import org.apache.parquet.column.ColumnDescriptor;
 import org.apache.parquet.hadoop.metadata.BlockMetaData;
 import org.apache.parquet.hadoop.metadata.ParquetMetadata;
 import org.apache.parquet.schema.MessageType;
@@ -59,11 +60,8 @@ import org.apache.spark.executor.TaskMetrics;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.comet.parquet.CometParquetReadSupport;
 import org.apache.spark.sql.comet.util.Utils$;
-import org.apache.spark.sql.errors.QueryExecutionErrors;
 import org.apache.spark.sql.execution.datasources.PartitionedFile;
-import org.apache.spark.sql.execution.datasources.SchemaColumnConvertNotSupportedException;
 import org.apache.spark.sql.execution.datasources.parquet.ParquetToSparkSchemaConverter;
-import org.apache.spark.sql.execution.datasources.parquet.SparkToParquetSchemaConverter;
 import org.apache.spark.sql.execution.metric.SQLMetric;
 import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.StructField;
@@ -77,7 +75,7 @@ import org.apache.comet.shims.ShimFileFormat;
 import org.apache.comet.vector.CometVector;
 import org.apache.comet.vector.NativeUtil;
 
-import static org.apache.comet.parquet.TypeUtil.isEqual;
+import static org.apache.comet.parquet.TypeUtil.*;
 
 /**
  * A vectorized Parquet reader that reads a Parquet file in a batched fashion.
@@ -263,28 +261,14 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
       if (sparkSchema == null) {
         sparkSchema = new ParquetToSparkSchemaConverter(conf).convert(requestedSchema);
       } else {
-        conf.set("spark.sql.parquet.writeLegacyFormat", useLegacyDateTimestamp ? "true" : "false");
-        conf.set("spark.sql.parquet.outputTimestampType", "TIMESTAMP_MICROS");
-        conf.set("spark.sql.parquet.fieldId.write.enabled", useFieldId ? "true" : "false");
-        SparkToParquetSchemaConverter converter = new SparkToParquetSchemaConverter(conf);
-        MessageType sparkSchemaAsMessage = converter.convert(sparkSchema);
-        MessageType clippedSchema =
+        requestedSchema =
             CometParquetReadSupport.clipParquetSchema(
                 requestedSchema, sparkSchema, isCaseSensitive, useFieldId, ignoreMissingIds);
-
-        try {
-          // isEqual will throw an exception if the schema is not compatible
-          isEqual(sparkSchemaAsMessage, clippedSchema);
-          requestedSchema = clippedSchema;
-        } catch (SchemaColumnConvertNotSupportedException e) {
-          throw QueryExecutionErrors.unsupportedSchemaColumnConvertError(
-              path.toString(), e.getColumn(), e.getLogicalType(), e.getPhysicalType(), e);
-        }
         if (requestedSchema.getFieldCount() != sparkSchema.size()) {
           throw new IllegalArgumentException(
               String.format(
                   "Spark schema has %d columns while " + "Parquet schema has %d columns",
-                  sparkSchema.size(), requestedSchema.getColumns().size()));
+                  sparkSchema.size(), requestedSchema.getFieldCount()));
         }
       }
 
@@ -546,6 +530,21 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
     }
     if (importer != null) importer.close();
     importer = new CometSchemaImporter(ALLOCATOR);
+
+    // Check that the types of the fields to be read are compatible with Spark
+    List<ColumnDescriptor> columns = requestedSchema.getColumns();
+    HashMap<String, StructField> leafFields = new HashMap<>();
+    getLeafFields(sparkSchema, "", leafFields);
+    for (ColumnDescriptor column : columns) {
+      String pathToColumn = String.join(".", column.getPath());
+      StructField leafField = leafFields.get(pathToColumn);
+      if (leafField != null) {
+        checkParquetType(column, leafField.dataType());
+      } else {
+        throw new IOException(
+            "Required column '" + pathToColumn + "' not found in " + this.file.filePath());
+      }
+    }
 
     List<Type> fields = requestedSchema.getFields();
     for (int i = 0; i < fields.size(); i++) {

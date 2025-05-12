@@ -21,6 +21,7 @@ package org.apache.comet.parquet;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.apache.parquet.column.ColumnDescriptor;
@@ -330,6 +331,8 @@ public class TypeUtil {
   }
 
   // From Parquet Type.java
+  // the type is equal if actual can be read into requested
+  //
   public static boolean equals(Type requested, Type actual) {
     return requested.getName().equals(actual.getName())
         // requested type is optional and actual is not repeated or both are required or repeated
@@ -383,5 +386,41 @@ public class TypeUtil {
           requested.toString(), actual.getName(), requested.getName());
     }
     return true;
+  }
+
+  /**
+   * Recursively processes the schema to populate the map of paths to leaf fields.
+   *
+   * @param schema The current schema to process.
+   * @param currentPath The current path being traversed.
+   * @param leafFields The map to populate with paths to leaf fields.
+   */
+  public static void getLeafFields(
+      StructType schema, String currentPath, Map<String, StructField> leafFields) {
+    for (StructField field : schema.fields()) {
+      String pathToLeafField =
+          currentPath.isEmpty() ? field.name() : currentPath + "." + field.name();
+      DataType fieldType = field.dataType();
+      if (fieldType instanceof StructType) {
+        getLeafFields((StructType) fieldType, pathToLeafField, leafFields);
+      } else if (fieldType instanceof MapType) {
+        MapType mapType = (MapType) fieldType;
+        // TODO: need to look into key type ??
+        if (mapType.valueType() instanceof StructType) {
+          getLeafFields((StructType) mapType.valueType(), pathToLeafField, leafFields);
+        } else {
+          leafFields.put(pathToLeafField, field);
+        }
+      } else if (fieldType instanceof ArrayType) {
+        ArrayType arrayType = (ArrayType) fieldType;
+        if (arrayType.elementType() instanceof StructType) {
+          getLeafFields((StructType) arrayType.elementType(), pathToLeafField, leafFields);
+        } else {
+          leafFields.put(pathToLeafField, field);
+        }
+      } else {
+        leafFields.put(pathToLeafField, field);
+      }
+    }
   }
 }
