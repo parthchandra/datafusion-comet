@@ -282,8 +282,7 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
                   sparkSchema.size(), requestedSchema.getFieldCount()));
         }
       }
-      this.parquetColumn =
-          converter.convertParquetColumn(requestedSchema, Option.apply(this.sparkSchema));
+      this.parquetColumn = converter.convertParquetColumn(requestedSchema, Option.empty());
 
       String timeZoneId = conf.get("spark.sql.session.timeZone");
       // Native code uses "UTC" always as the timeZoneId when converting from spark to arrow schema.
