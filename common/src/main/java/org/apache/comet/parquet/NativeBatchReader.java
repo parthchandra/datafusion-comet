@@ -59,10 +59,10 @@ import org.apache.spark.TaskContext;
 import org.apache.spark.TaskContext$;
 import org.apache.spark.executor.TaskMetrics;
 import org.apache.spark.sql.catalyst.InternalRow;
+import org.apache.spark.sql.comet.parquet.CometParquetReadSupport;
 import org.apache.spark.sql.comet.util.Utils$;
 import org.apache.spark.sql.execution.datasources.PartitionedFile;
 import org.apache.spark.sql.execution.datasources.parquet.ParquetColumn;
-import org.apache.spark.sql.execution.datasources.parquet.ParquetReadSupport;
 import org.apache.spark.sql.execution.datasources.parquet.ParquetToSparkSchemaConverter;
 import org.apache.spark.sql.execution.metric.SQLMetric;
 import org.apache.spark.sql.types.DataType;
@@ -272,13 +272,12 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
       if (sparkSchema == null) {
         sparkSchema = converter.convert(requestedSchema);
       } else {
-        //        requestedSchema =
-        //                CometParquetReadSupport.clipParquetSchema(
-        //                        requestedSchema, sparkSchema, isCaseSensitive, useFieldId,
-        // ignoreMissingIds);
         requestedSchema =
-            ParquetReadSupport.clipParquetSchema(
-                requestedSchema, sparkSchema, isCaseSensitive, useFieldId);
+            CometParquetReadSupport.clipParquetSchema(
+                requestedSchema, sparkSchema, isCaseSensitive, useFieldId, ignoreMissingIds);
+        //        requestedSchema =
+        //            ParquetReadSupport.clipParquetSchema(
+        //                requestedSchema, sparkSchema, isCaseSensitive, useFieldId);
         if (requestedSchema.getFieldCount() != sparkSchema.size()) {
           throw new IllegalArgumentException(
               String.format(
@@ -289,8 +288,7 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
       this.parquetColumn =
           converter.convertParquetColumn(requestedSchema, Option.apply(this.sparkSchema));
 
-      //      String timeZoneId = conf.get("spark.sql.session.timeZone");
-      String timeZoneId = "UTC";
+      String timeZoneId = conf.get("spark.sql.session.timeZone");
       // Native code uses "UTC" always as the timeZoneId when converting from spark to arrow schema.
       Schema arrowSchema = Utils$.MODULE$.toArrowSchema(sparkSchema, "UTC");
       byte[] serializedRequestedArrowSchema = serializeArrowSchema(arrowSchema);
