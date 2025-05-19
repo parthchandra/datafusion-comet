@@ -108,26 +108,16 @@ pub fn spark_parquet_convert(
     parquet_options: &SparkParquetOptions,
 ) -> DataFusionResult<ColumnarValue> {
     match arg {
-        ColumnarValue::Array(array) => {
-            debug!(
-                "spark_parquet_convert: ColumnarValue is Array, datatype: {:?}",
-                data_type
-            );
-            Ok(ColumnarValue::Array(cast_array(
-                array,
-                data_type,
-                parquet_options,
-            )?))
-        }
+        ColumnarValue::Array(array) => Ok(ColumnarValue::Array(cast_array(
+            array,
+            data_type,
+            parquet_options,
+        )?)),
         ColumnarValue::Scalar(scalar) => {
             // Note that normally CAST(scalar) should be fold in Spark JVM side. However, for
             // some cases e.g., scalar subquery, Spark will not fold it, so we need to handle it
             // here.
             let array = scalar.to_array()?;
-            debug!(
-                "spark_parquet_convert: ColumnarValue is Scalar, datatype: {:?}",
-                data_type
-            );
             let scalar =
                 ScalarValue::try_from_array(&cast_array(array, data_type, parquet_options)?, 0)?;
             Ok(ColumnarValue::Scalar(scalar))
@@ -141,22 +131,6 @@ fn cast_array(
     parquet_options: &SparkParquetOptions,
 ) -> DataFusionResult<ArrayRef> {
     use DataType::*;
-    debug!(
-        "cast_array: to type: {:?}, input array type : {:?}, tz: {:?} ",
-        to_type,
-        array.data_type(),
-        parquet_options.timezone
-    );
-    let array = match to_type {
-        Timestamp(_, None) => array, // array_with_timezone does not support to_type of NTZ.
-        List(f) => {
-            match f.data_type() {
-                Timestamp(_, None) => array, // array_with_timezone does not support to_type of NTZ.
-                _ => array_with_timezone(array, parquet_options.timezone.clone(), Some(to_type))?,
-            }
-        } // array_with_timezone does not support to_type of NTZ.
-        _ => array_with_timezone(array, parquet_options.timezone.clone(), Some(to_type))?,
-    };
     let from_type = array.data_type().clone();
 
     let array = match &from_type {
@@ -245,22 +219,6 @@ fn cast_struct_to_struct(
         _ => unreachable!(),
     }
 }
-
-/*
-fn cast_array_to_array(
-    array: &ListArray,
-    from_type: &DataType,
-    to_type: &DataType,
-    parquet_options: &SparkParquetOptions,
-) -> DataFusionResult<ArrayRef> {
-    match (from_type, to_type) {
-        (DataType::List(from), DataType::List(to)) => {
-                cast_with_options(array, to_type, &PARQUET_OPTIONS)
-        }
-        _ => unreachable!(),
-    }
-}
-*/
 
 // Mirrors object_store::parse::parse_url for the hdfs object store
 #[cfg(feature = "hdfs")]
