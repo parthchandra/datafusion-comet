@@ -27,6 +27,7 @@ import java.lang.reflect.Method;
 import java.net.URI;
 import java.nio.channels.Channels;
 import java.util.*;
+import java.util.stream.Collectors;
 
 import scala.Option;
 import scala.collection.JavaConverters;
@@ -61,14 +62,14 @@ import org.apache.spark.executor.TaskMetrics;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.comet.parquet.CometParquetReadSupport;
 import org.apache.spark.sql.comet.util.Utils$;
+import org.apache.spark.sql.errors.QueryExecutionErrors;
 import org.apache.spark.sql.execution.datasources.PartitionedFile;
 import org.apache.spark.sql.execution.datasources.parquet.ParquetColumn;
 import org.apache.spark.sql.execution.datasources.parquet.ParquetToSparkSchemaConverter;
+import org.apache.spark.sql.execution.datasources.parquet.ParquetUtils;
 import org.apache.spark.sql.execution.metric.SQLMetric;
 import org.apache.spark.sql.internal.SQLConf;
-import org.apache.spark.sql.types.DataType;
-import org.apache.spark.sql.types.StructField;
-import org.apache.spark.sql.types.StructType;
+import org.apache.spark.sql.types.*;
 import org.apache.spark.sql.vectorized.ColumnarBatch;
 import org.apache.spark.util.AccumulatorV2;
 
@@ -235,12 +236,6 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
    */
   public void init() throws Throwable {
 
-    conf.set("spark.sql.parquet.binaryAsString", "false");
-    conf.set("spark.sql.parquet.int96AsTimestamp", "false");
-    conf.set("spark.sql.caseSensitive", "false");
-    conf.set("spark.sql.parquet.inferTimestampNTZ.enabled", "true");
-    conf.set("spark.sql.legacy.parquet.nanosAsLong", "false");
-
     useDecimal128 =
         conf.getBoolean(
             CometConf.COMET_USE_DECIMAL_128().key(),
@@ -268,9 +263,9 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
 
       requestedSchema = footer.getFileMetaData().getSchema();
       fileSchema = requestedSchema;
-      ParquetToSparkSchemaConverter converter = new ParquetToSparkSchemaConverter(conf);
 
       if (sparkSchema == null) {
+        ParquetToSparkSchemaConverter converter = new ParquetToSparkSchemaConverter(conf);
         sparkSchema = converter.convert(requestedSchema);
       } else {
         requestedSchema =
@@ -283,8 +278,22 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
                   sparkSchema.size(), requestedSchema.getFieldCount()));
         }
       }
-      this.parquetColumn =
-          converter.convertParquetColumn(requestedSchema, Option.apply(this.sparkSchema));
+
+      boolean caseSensitive =
+          conf.getBoolean(
+              SQLConf.CASE_SENSITIVE().key(),
+              (boolean) SQLConf.CASE_SENSITIVE().defaultValue().get());
+      // rename spark fields based on field_id so name of spark schema field matches the parquet
+      // field name
+      if (useFieldId) {
+        Map<String, String> nameMap =
+            caseSensitive
+                ? getCaseSensitiveNameMap(requestedSchema)
+                : getCaseInsensitiveNameMap(requestedSchema);
+        sparkSchema =
+            getSparkSchemaByFieldId(sparkSchema, getIdToParquetFieldMap(requestedSchema), nameMap);
+      }
+      this.parquetColumn = getParquetColumn(requestedSchema, this.sparkSchema);
 
       String timeZoneId = conf.get("spark.sql.session.timeZone");
       // Native code uses "UTC" always as the timeZoneId when converting from spark to arrow schema.
@@ -404,10 +413,6 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
           conf.getInt(
               CometConf.COMET_BATCH_SIZE().key(),
               (Integer) CometConf.COMET_BATCH_SIZE().defaultValue().get());
-      boolean caseSensitive =
-          conf.getBoolean(
-              SQLConf.CASE_SENSITIVE().key(),
-              (boolean) SQLConf.CASE_SENSITIVE().defaultValue().get());
       this.handle =
           Native.initRecordBatchReader(
               filePath,
@@ -422,6 +427,132 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
               caseSensitive);
     }
     isInitialized = true;
+  }
+
+  private ParquetColumn getParquetColumn(MessageType schema, StructType sparkSchema) {
+    // We use a different config from the config that is passed in.
+    // This follows the setting  used in Spark's SpecificParquetRecordReaderBase
+    Configuration config = new Configuration();
+    config.setBoolean(SQLConf.PARQUET_BINARY_AS_STRING().key(), false);
+    config.setBoolean(SQLConf.PARQUET_INT96_AS_TIMESTAMP().key(), false);
+    config.setBoolean(SQLConf.CASE_SENSITIVE().key(), false);
+    config.setBoolean(SQLConf.PARQUET_INFER_TIMESTAMP_NTZ_ENABLED().key(), false);
+    config.setBoolean(SQLConf.LEGACY_PARQUET_NANOS_AS_LONG().key(), false);
+    ParquetToSparkSchemaConverter converter = new ParquetToSparkSchemaConverter(config);
+    return converter.convertParquetColumn(schema, Option.apply(sparkSchema));
+  }
+
+  private Map<Integer, List<Type>> getIdToParquetFieldMap(MessageType schema) {
+    return schema.asGroupType().getFields().stream()
+        .filter(f -> f.getId() != null)
+        .collect(Collectors.groupingBy(f -> f.getId().intValue()));
+  }
+
+  private Map<String, String> getCaseSensitiveNameMap(MessageType schema) {
+    return schema.asGroupType().getFields().stream()
+        .map(f -> new AbstractMap.SimpleEntry<>(f.getName(), f.getName()))
+        .collect(
+            Collectors.toMap(AbstractMap.SimpleEntry::getKey, AbstractMap.SimpleEntry::getValue));
+  }
+
+  private Map<String, String> getCaseInsensitiveNameMap(MessageType schema) {
+    return schema.asGroupType().getFields().stream()
+        .collect(
+            Collectors.toMap(
+                Type::getName,
+                Type::getName,
+                (oldValue, newValue) -> oldValue.toLowerCase(Locale.ROOT),
+                () -> new java.util.HashMap<>(schema.getFieldCount())));
+  }
+
+  // Derived from CometParquetReadSupport.matchFieldId
+  private String getMatchingNameById(
+      StructField f, Map<Integer, List<Type>> idToParquetFieldMap, Map<String, String> nameMap) {
+    List<Type> matched;
+    int fieldId;
+    if (ParquetUtils.hasFieldId(f)) {
+      fieldId = ParquetUtils.getFieldId(f);
+      matched = idToParquetFieldMap.get(fieldId);
+    } else {
+      return nameMap.get(f.name());
+    }
+
+    // When there is no ID match, we use a fake name to avoid a name match by accident
+    // We need this name to be unique as well, otherwise there will be type conflicts
+    if (matched == null || matched.isEmpty()) {
+      return CometParquetReadSupport.generateFakeColumnName();
+    }
+    if (matched.size() > 1) {
+      // Need to fail if there is ambiguity, i.e. more than one field is matched
+      String parquetTypesString =
+          matched.stream().map(Type::getName).collect(Collectors.joining("[", ", ", "]"));
+      throw QueryExecutionErrors.foundDuplicateFieldInFieldIdLookupModeError(
+          fieldId, parquetTypesString);
+    } else {
+      return matched.get(0).getName();
+    }
+  }
+
+  private StructType getSparkSchemaByFieldId(
+      StructType schema,
+      Map<Integer, List<Type>> idToParquetFieldMap,
+      Map<String, String> nameMap) {
+    StructType newSchema = new StructType();
+    for (StructField f : schema.fields()) {
+      DataType newDataType;
+      if (f.dataType() instanceof StructType) {
+        newDataType =
+            getSparkSchemaByFieldId((StructType) f.dataType(), idToParquetFieldMap, nameMap);
+      } else {
+        newDataType = getSparkSchemaByFieldId(f.dataType(), idToParquetFieldMap, nameMap);
+      }
+      String matchedName = getMatchingNameById(f, idToParquetFieldMap, nameMap);
+      StructField newField = f.copy(matchedName, newDataType, f.nullable(), f.metadata());
+      newSchema = newSchema.add(newField);
+    }
+    return newSchema;
+  }
+
+  private DataType getSparkSchemaByFieldId(
+      DataType dataType,
+      Map<Integer, List<Type>> idToParquetFieldMap,
+      Map<String, String> nameMap) {
+    DataType newDataType;
+    if (dataType instanceof StructType) {
+      newDataType = getSparkSchemaByFieldId((StructType) dataType, idToParquetFieldMap, nameMap);
+    } else if (dataType instanceof ArrayType) {
+      ArrayType arrayType = (ArrayType) dataType;
+      DataType elementType = arrayType.elementType();
+      DataType newElementType;
+      if (elementType instanceof StructType) {
+        newElementType =
+            getSparkSchemaByFieldId((StructType) elementType, idToParquetFieldMap, nameMap);
+      } else {
+        newElementType = getSparkSchemaByFieldId(elementType, idToParquetFieldMap, nameMap);
+      }
+      newDataType = new ArrayType(newElementType, arrayType.containsNull());
+    } else if (dataType instanceof MapType) {
+      MapType mapType = (MapType) dataType;
+      DataType keyType = mapType.keyType();
+      DataType valueType = mapType.valueType();
+      DataType newKeyType;
+      DataType newValueType;
+      if (keyType instanceof StructType) {
+        newKeyType = getSparkSchemaByFieldId((StructType) keyType, idToParquetFieldMap, nameMap);
+      } else {
+        newKeyType = keyType;
+      }
+      if (valueType instanceof StructType) {
+        newValueType =
+            getSparkSchemaByFieldId((StructType) valueType, idToParquetFieldMap, nameMap);
+      } else {
+        newValueType = valueType;
+      }
+      newDataType = new MapType(newKeyType, newValueType, mapType.valueContainsNull());
+    } else {
+      newDataType = dataType;
+    }
+    return newDataType;
   }
 
   private void checkParquetType(ParquetColumn column) throws IOException {
