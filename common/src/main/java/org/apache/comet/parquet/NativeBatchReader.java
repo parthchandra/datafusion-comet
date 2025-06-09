@@ -285,13 +285,9 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
               (boolean) SQLConf.CASE_SENSITIVE().defaultValue().get());
       // rename spark fields based on field_id so name of spark schema field matches the parquet
       // field name
-      if (useFieldId) {
-        Map<String, String> nameMap =
-            caseSensitive
-                ? getCaseSensitiveNameMap(requestedSchema)
-                : getCaseInsensitiveNameMap(requestedSchema);
+      if (useFieldId && ParquetUtils.hasFieldIds(sparkSchema)) {
         sparkSchema =
-            getSparkSchemaByFieldId(sparkSchema, getIdToParquetFieldMap(requestedSchema), nameMap);
+            getSparkSchemaByFieldId(sparkSchema, requestedSchema.asGroupType(), caseSensitive);
       }
       this.parquetColumn = getParquetColumn(requestedSchema, this.sparkSchema);
 
@@ -442,45 +438,38 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
     return converter.convertParquetColumn(schema, Option.apply(sparkSchema));
   }
 
-  private Map<Integer, List<Type>> getIdToParquetFieldMap(MessageType schema) {
-    return schema.asGroupType().getFields().stream()
+  private Map<Integer, List<Type>> getIdToParquetFieldMap(GroupType type) {
+    return type.getFields().stream()
         .filter(f -> f.getId() != null)
         .collect(Collectors.groupingBy(f -> f.getId().intValue()));
   }
 
-  private Map<String, String> getCaseSensitiveNameMap(MessageType schema) {
-    return schema.asGroupType().getFields().stream()
-        .map(f -> new AbstractMap.SimpleEntry<>(f.getName(), f.getName()))
-        .collect(
-            Collectors.toMap(AbstractMap.SimpleEntry::getKey, AbstractMap.SimpleEntry::getValue));
+  private Map<String, List<Type>> getCaseSensitiveParquetFieldMap(GroupType schema) {
+    return schema.getFields().stream().collect(Collectors.toMap(Type::getName, Arrays::asList));
   }
 
-  private Map<String, String> getCaseInsensitiveNameMap(MessageType schema) {
-    return schema.asGroupType().getFields().stream()
-        .collect(
-            Collectors.toMap(
-                Type::getName,
-                Type::getName,
-                (oldValue, newValue) -> oldValue.toLowerCase(Locale.ROOT),
-                () -> new java.util.HashMap<>(schema.getFieldCount())));
+  private Map<String, List<Type>> getCaseInsensitiveParquetFieldMap(GroupType schema) {
+    return schema.getFields().stream()
+        .collect(Collectors.groupingBy(f -> f.getName().toLowerCase(Locale.ROOT)));
   }
 
-  // Derived from CometParquetReadSupport.matchFieldId
-  private String getMatchingNameById(
-      StructField f, Map<Integer, List<Type>> idToParquetFieldMap, Map<String, String> nameMap) {
-    List<Type> matched;
-    int fieldId;
+  private Type getMatchingParquetFieldById(
+      StructField f,
+      Map<Integer, List<Type>> idToParquetFieldMap,
+      Map<String, List<Type>> nameToParquetFieldMap,
+      boolean isCaseSensitive) {
+    List<Type> matched = null;
+    int fieldId = 0;
     if (ParquetUtils.hasFieldId(f)) {
       fieldId = ParquetUtils.getFieldId(f);
       matched = idToParquetFieldMap.get(fieldId);
     } else {
-      return nameMap.get(f.name());
+      String fieldName = isCaseSensitive ? f.name() : f.name().toLowerCase(Locale.ROOT);
+      matched = nameToParquetFieldMap.get(fieldName);
     }
 
-    // When there is no ID match, we use a fake name to avoid a name match by accident
-    // We need this name to be unique as well, otherwise there will be type conflicts
     if (matched == null || matched.isEmpty()) {
-      return CometParquetReadSupport.generateFakeColumnName();
+      return null;
     }
     if (matched.size() > 1) {
       // Need to fail if there is ambiguity, i.e. more than one field is matched
@@ -489,62 +478,89 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
       throw QueryExecutionErrors.foundDuplicateFieldInFieldIdLookupModeError(
           fieldId, parquetTypesString);
     } else {
-      return matched.get(0).getName();
+      return matched.get(0);
     }
   }
 
-  private StructType getSparkSchemaByFieldId(
-      StructType schema,
+  // Derived from CometParquetReadSupport.matchFieldId
+  private String getMatchingNameById(
+      StructField f,
       Map<Integer, List<Type>> idToParquetFieldMap,
-      Map<String, String> nameMap) {
+      Map<String, List<Type>> nameToParquetFieldMap /*, Map<String, String> nameMap*/,
+      boolean isCaseSensitive) {
+    Type matched =
+        getMatchingParquetFieldById(f, idToParquetFieldMap, nameToParquetFieldMap, isCaseSensitive);
+
+    // When there is no ID match, we use a fake name to avoid a name match by accident
+    // We need this name to be unique as well, otherwise there will be type conflicts
+    if (matched == null /*|| matched.isEmpty()*/) {
+      return CometParquetReadSupport.generateFakeColumnName();
+    } else {
+      return matched.getName();
+    }
+  }
+
+  // clip ParquetGroup Type
+  private StructType getSparkSchemaByFieldId( StructType schema, GroupType parquetSchema, boolean caseSensitive ) {
     StructType newSchema = new StructType();
+    Map<Integer, List<Type>> idToParquetFieldMap = getIdToParquetFieldMap(parquetSchema);
+    Map<String, List<Type>> nameToParquetFieldMap =
+        caseSensitive
+            ? getCaseSensitiveParquetFieldMap(parquetSchema)
+            : getCaseInsensitiveParquetFieldMap(parquetSchema);
     for (StructField f : schema.fields()) {
       DataType newDataType;
-      if (f.dataType() instanceof StructType) {
-        newDataType =
-            getSparkSchemaByFieldId((StructType) f.dataType(), idToParquetFieldMap, nameMap);
+      String fieldName = isCaseSensitive ? f.name() : f.name().toLowerCase(Locale.ROOT);
+      List<Type> parquetFieldList = nameToParquetFieldMap.get(fieldName);
+      if (parquetFieldList == null) {
+        newDataType = f.dataType();
       } else {
-        newDataType = getSparkSchemaByFieldId(f.dataType(), idToParquetFieldMap, nameMap);
+        Type fieldType = parquetFieldList.get(0);
+        if (f.dataType() instanceof StructType) {
+          newDataType =
+              getSparkSchemaByFieldId((StructType) f.dataType(), fieldType.asGroupType(), caseSensitive);
+        } else {
+          newDataType = getSparkTypeByFieldId(f.dataType(), fieldType, caseSensitive);
+        }
       }
-      String matchedName = getMatchingNameById(f, idToParquetFieldMap, nameMap);
+      String matchedName =
+          getMatchingNameById(f, idToParquetFieldMap, nameToParquetFieldMap, isCaseSensitive);
       StructField newField = f.copy(matchedName, newDataType, f.nullable(), f.metadata());
       newSchema = newSchema.add(newField);
     }
     return newSchema;
   }
 
-  private DataType getSparkSchemaByFieldId(
-      DataType dataType,
-      Map<Integer, List<Type>> idToParquetFieldMap,
-      Map<String, String> nameMap) {
+  private DataType getSparkTypeByFieldId(DataType dataType, Type parquetType, boolean caseSensitive ) {
     DataType newDataType;
     if (dataType instanceof StructType) {
-      newDataType = getSparkSchemaByFieldId((StructType) dataType, idToParquetFieldMap, nameMap);
+      newDataType =
+          getSparkSchemaByFieldId((StructType) dataType, parquetType.asGroupType(), caseSensitive);
     } else if (dataType instanceof ArrayType) {
-      ArrayType arrayType = (ArrayType) dataType;
-      DataType elementType = arrayType.elementType();
-      DataType newElementType;
-      if (elementType instanceof StructType) {
-        newElementType =
-            getSparkSchemaByFieldId((StructType) elementType, idToParquetFieldMap, nameMap);
-      } else {
-        newElementType = getSparkSchemaByFieldId(elementType, idToParquetFieldMap, nameMap);
-      }
-      newDataType = new ArrayType(newElementType, arrayType.containsNull());
+
+      newDataType =
+          getSparkArrayTypeByFieldId(
+              (ArrayType) dataType, parquetType.asGroupType(), caseSensitive);
     } else if (dataType instanceof MapType) {
       MapType mapType = (MapType) dataType;
       DataType keyType = mapType.keyType();
       DataType valueType = mapType.valueType();
       DataType newKeyType;
       DataType newValueType;
+      Type parquetMapType = parquetType.asGroupType().getFields().get(0);
+      Type parquetKeyType = parquetMapType.asGroupType().getType("key");
+      Type parquetValueType = parquetMapType.asGroupType().getType("value");
       if (keyType instanceof StructType) {
-        newKeyType = getSparkSchemaByFieldId((StructType) keyType, idToParquetFieldMap, nameMap);
+        newKeyType =
+            getSparkSchemaByFieldId(
+                (StructType) keyType, parquetKeyType.asGroupType(), caseSensitive);
       } else {
         newKeyType = keyType;
       }
       if (valueType instanceof StructType) {
         newValueType =
-            getSparkSchemaByFieldId((StructType) valueType, idToParquetFieldMap, nameMap);
+            getSparkSchemaByFieldId(
+                (StructType) valueType, parquetValueType.asGroupType(), caseSensitive);
       } else {
         newValueType = valueType;
       }
@@ -552,6 +568,38 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
     } else {
       newDataType = dataType;
     }
+    return newDataType;
+  }
+
+  private DataType getSparkArrayTypeByFieldId(
+      ArrayType arrayType, GroupType parquetType, boolean caseSensitive) {
+    DataType newDataType;
+    DataType elementType = arrayType.elementType();
+    DataType newElementType;
+    Type parquetList = parquetType.getFields().get(0);
+    Type parquetElementType;
+    if (parquetList.getLogicalTypeAnnotation() == null
+        && parquetList.isRepetition(Type.Repetition.REPEATED)) {
+      parquetElementType = parquetList;
+    } else {
+      // we expect only non-primitive types here (see clipParquetListTypes for related logic)
+      GroupType repeatedGroup = parquetList.asGroupType().getType(0).asGroupType();
+      if (repeatedGroup.getFieldCount() > 1
+          || Objects.equals(repeatedGroup.getName(), "array")
+          || Objects.equals(repeatedGroup.getName(), parquetList.getName() + "_tuple")) {
+        parquetElementType = repeatedGroup;
+      } else {
+        parquetElementType = repeatedGroup.getType(0);
+      }
+    }
+    if (elementType instanceof StructType) {
+      newElementType =
+          getSparkSchemaByFieldId(
+              (StructType) elementType, parquetElementType.asGroupType(), caseSensitive);
+    } else {
+      newElementType = getSparkTypeByFieldId(elementType, parquetElementType, caseSensitive);
+    }
+    newDataType = new ArrayType(newElementType, arrayType.containsNull());
     return newDataType;
   }
 
