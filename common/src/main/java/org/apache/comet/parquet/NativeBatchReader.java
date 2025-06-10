@@ -501,7 +501,8 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
   }
 
   // clip ParquetGroup Type
-  private StructType getSparkSchemaByFieldId( StructType schema, GroupType parquetSchema, boolean caseSensitive ) {
+  private StructType getSparkSchemaByFieldId(
+      StructType schema, GroupType parquetSchema, boolean caseSensitive) {
     StructType newSchema = new StructType();
     Map<Integer, List<Type>> idToParquetFieldMap = getIdToParquetFieldMap(parquetSchema);
     Map<String, List<Type>> nameToParquetFieldMap =
@@ -518,7 +519,8 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
         Type fieldType = parquetFieldList.get(0);
         if (f.dataType() instanceof StructType) {
           newDataType =
-              getSparkSchemaByFieldId((StructType) f.dataType(), fieldType.asGroupType(), caseSensitive);
+              getSparkSchemaByFieldId(
+                  (StructType) f.dataType(), fieldType.asGroupType(), caseSensitive);
         } else {
           newDataType = getSparkTypeByFieldId(f.dataType(), fieldType, caseSensitive);
         }
@@ -531,7 +533,8 @@ public class NativeBatchReader extends RecordReader<Void, ColumnarBatch> impleme
     return newSchema;
   }
 
-  private DataType getSparkTypeByFieldId(DataType dataType, Type parquetType, boolean caseSensitive ) {
+  private DataType getSparkTypeByFieldId(
+      DataType dataType, Type parquetType, boolean caseSensitive) {
     DataType newDataType;
     if (dataType instanceof StructType) {
       newDataType =
