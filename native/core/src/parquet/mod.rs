@@ -27,6 +27,7 @@ pub mod read;
 pub mod schema_adapter;
 
 mod objectstore;
+mod hadoop_input_stream;
 
 use std::collections::HashMap;
 use std::task::Poll;
