@@ -26,8 +26,8 @@ pub mod parquet_support;
 pub mod read;
 pub mod schema_adapter;
 
-mod objectstore;
 mod hadoop_input_stream;
+mod objectstore;
 
 use std::collections::HashMap;
 use std::task::Poll;
@@ -600,7 +600,7 @@ pub extern "system" fn Java_org_apache_comet_parquet_Native_closeColumnReader(
     })
 }
 
-fn from_u8_slice(src: &mut [u8]) -> &mut [i8] {
+pub fn from_u8_slice(src: &mut [u8]) -> &mut [i8] {
     let raw_ptr = src.as_mut_ptr() as *mut i8;
     unsafe { std::slice::from_raw_parts_mut(raw_ptr, src.len()) }
 }
