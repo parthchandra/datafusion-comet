@@ -292,4 +292,6 @@ public final class Native extends NativeBase {
    * @param handle
    */
   public static native void closeRecordBatchReader(long handle);
+
+  public static native void processInputStream(Object inputStream);
 }

@@ -21,6 +21,7 @@ package org.apache.comet.parquet
 
 import java.io.{File, FileFilter}
 import java.math.{BigDecimal, BigInteger}
+import java.net.URI
 import java.time.{ZoneId, ZoneOffset}
 
 import scala.collection.mutable.ListBuffer
@@ -2029,5 +2030,42 @@ class ParquetReadV2Suite extends ParquetReadSuite with AdaptiveSparkPlanHelper {
           scanner = expectedScanner,
           v1 = None)
     }
+  }
+
+  test("input stream") {
+    val conf = spark.sparkContext.hadoopConfiguration
+    val data = (-100 to 100).map { i =>
+      (
+        i % 2 == 0,
+        i,
+        i.toByte,
+        i.toShort,
+        i.toLong,
+        i.toFloat,
+        i.toDouble,
+        DateTimeUtils.toJavaDate(i))
+    }
+    withTempPath { file =>
+      spark
+        .createDataFrame(data)
+        .coalesce(1)
+        .write
+        .parquet(file.getCanonicalPath)
+
+      val path = new Path(new URI("file://" + file.getCanonicalPath))
+      val files = path.getFileSystem(conf).listFiles(path, false)
+
+      val input = CometInputFile.fromPath(files.next().getPath, conf)
+
+      val is = input.newStream
+
+      val fs = path.getFileSystem(conf)
+      fs.
+
+      Native.processInputStream(is)
+      is.close()
+
+    }
+
   }
 }

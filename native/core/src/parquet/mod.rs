@@ -27,6 +27,7 @@ pub mod read;
 pub mod schema_adapter;
 
 mod hadoop_input_stream;
+mod hadoop_parquet_reader;
 mod objectstore;
 
 use std::collections::HashMap;
@@ -847,4 +848,44 @@ pub extern "system" fn Java_org_apache_comet_parquet_Native_closeRecordBatchRead
         };
         Ok(())
     })
+}
+
+#[no_mangle]
+pub unsafe extern "system" fn Java_org_apache_comet_parquet_Native_processInputStream(
+    env: JNIEnv,
+    _class: JClass,
+    input_stream: JObject, // The SeekableInputStream passed from Java
+) {
+    let mut stream = hadoop_input_stream::HadoopInputStream::new(env, input_stream);
+
+    // Call the seek method
+    match stream.seek(10) {
+        Ok(_) => println!("seeked to {}", 10),
+        Err(e) => println!("Error calling seek on SeekableInputStream: {:?}", e),
+    }
+
+    // Call the getPos method
+    match stream.get_pos() {
+        Ok(pos) => println!("Current position: {}", pos),
+        Err(e) => println!("Error calling getPos: {:?}", e),
+    }
+
+    // Call the read method
+    let mut buffer = vec![0u8; 20]; // Buffer to read into
+    match stream.read(&mut buffer) {
+        Ok(bytes_read) => {
+            println!("Read {} bytes", bytes_read);
+            // Process the data in 'buffer'
+        }
+        Err(e) => println!("Error calling read: {:?}", e),
+    }
+
+    // Call the readFully method
+    let mut read_fully_buffer = vec![0u8; 30];
+    match stream.read_fully(&mut read_fully_buffer) {
+        Ok(_) => {
+            println!("Read {} bytes fully", 30);
+        }
+        Err(e) => println!("Error calling read_fully: {:?}", e),
+    }
 }
