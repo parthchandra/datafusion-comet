@@ -2059,9 +2059,6 @@ class ParquetReadV2Suite extends ParquetReadSuite with AdaptiveSparkPlanHelper {
 
       val is = input.newStream
 
-      val fs = path.getFileSystem(conf)
-      fs.
-
       Native.processInputStream(is)
       is.close()
 

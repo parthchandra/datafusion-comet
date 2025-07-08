@@ -16,3 +16,6 @@
 // under the License.
 
 pub mod hdfs;
+pub mod jni_hdfs;
+
+pub use jni_hdfs::JniHadoopFileSystem;

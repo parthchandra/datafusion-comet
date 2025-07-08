@@ -45,6 +45,7 @@ chrono = { workspace = true }
 fs-hdfs = { version = "^0.1.12", optional = true }
 fs-hdfs3 = { version = "^0.1.12", optional = true }
 futures = { workspace = true }
+jni = {workspace = true }
 object_store = { workspace = true }
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "sync", "parking_lot"] }
 

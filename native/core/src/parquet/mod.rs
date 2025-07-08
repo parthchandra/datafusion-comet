@@ -27,7 +27,6 @@ pub mod read;
 pub mod schema_adapter;
 
 mod hadoop_input_stream;
-mod hadoop_parquet_reader;
 mod objectstore;
 
 use std::collections::HashMap;

@@ -53,6 +53,7 @@ object_store = { version = "0.12.0", features = ["gcp", "azure", "aws", "http"] 
 url = "2.2"
 aws-config = "1.6.3"
 aws-credential-types = "1.2.3"
+jni = { version = "0.21", features = ["invocation"] }
 
 [profile.release]
 debug = true

@@ -1419,6 +1419,7 @@ dependencies = [
  "fs-hdfs",
  "fs-hdfs3",
  "futures",
+ "jni",
  "object_store",
  "tokio",
 ]
