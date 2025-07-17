@@ -27,7 +27,10 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use futures::{stream::BoxStream, StreamExt, TryStreamExt};
-use hdfs::hdfs::{get_hdfs_by_full_path, FileStatus, HdfsErr, HdfsFile, HdfsFs};
+use hdfs::hdfs::{
+    get_hdfs_by_full_path, get_registered_schemes, register_scheme, FileStatus, HdfsErr, HdfsFile,
+    HdfsFs,
+};
 use hdfs::walkdir::HdfsWalkDir;
 use object_store::{
     path::{self, Path},
@@ -35,6 +38,8 @@ use object_store::{
     ObjectMeta, ObjectStore, PutMultipartOpts, PutOptions, PutPayload, PutResult, Result,
 };
 
+/// scheme for S3A File System
+pub static S3A_SCHEME: &str = "s3a";
 /// scheme for HDFS File System
 pub static HDFS_SCHEME: &str = "hdfs";
 /// scheme for HDFS Federation File System
@@ -57,6 +62,7 @@ impl Default for HadoopFileSystem {
 impl HadoopFileSystem {
     /// Get HDFS from the full path, like hdfs://localhost:8020/xxx/xxx
     pub fn new(full_path: &str) -> Option<Self> {
+        register_scheme(S3A_SCHEME);
         get_hdfs_by_full_path(full_path)
             .map(|hdfs| Some(Self { hdfs }))
             .unwrap_or(None)
@@ -77,13 +83,13 @@ impl HadoopFileSystem {
 
     pub fn get_hdfs_host(&self) -> String {
         let hdfs_url = self.hdfs.url();
-        if hdfs_url.starts_with(HDFS_SCHEME) {
-            hdfs_url[7..].to_owned()
-        } else if hdfs_url.starts_with(VIEWFS_SCHEME) {
-            hdfs_url[9..].to_owned()
-        } else {
-            "".to_owned()
+        let schemes = get_registered_schemes();
+        for scheme in schemes.iter() {
+            if hdfs_url.starts_with(scheme) {
+                return scheme.to_string();
+            }
         }
+        "".to_owned()
     }
 
     fn read_range(range: &Range<u64>, file: &HdfsFile) -> Result<Bytes> {
@@ -437,7 +443,7 @@ impl ObjectStore for HadoopFileSystem {
         let to = HadoopFileSystem::path_to_filesystem(to);
 
         maybe_spawn_blocking(move || {
-            hdfs.rename(&from, &to).map_err(to_error)?;
+            hdfs.rename(&from, &to, false).map_err(to_error)?;
 
             Ok(())
         })

@@ -367,29 +367,30 @@ pub(crate) fn prepare_object_store_with_configs(
     url: String,
     object_store_configs: &HashMap<String, String>,
 ) -> Result<(ObjectStoreUrl, Path), ExecutionError> {
-    let mut url = Url::parse(url.as_str())
+    let url = Url::parse(url.as_str())
         .map_err(|e| ExecutionError::GeneralError(format!("Error parsing URL {url}: {e}")))?;
-    let mut scheme = url.scheme();
-    if scheme == "s3a" {
-        scheme = "s3";
-        url.set_scheme("s3").map_err(|_| {
-            ExecutionError::GeneralError("Could not convert scheme from s3a to s3".to_string())
-        })?;
-    }
+    let scheme = url.scheme();
+    // if scheme == "s3a" {
+    //     scheme = "s3";
+    //     url.set_scheme("s3").map_err(|_| {
+    //         ExecutionError::GeneralError("Could not convert scheme from s3a to s3".to_string())
+    //     })?;
+    // }
     let url_key = format!(
         "{}://{}",
         scheme,
         &url[url::Position::BeforeHost..url::Position::AfterPort],
     );
 
-    let (object_store, object_store_path): (Box<dyn ObjectStore>, Path) = if scheme == "hdfs" {
-        parse_hdfs_url(&url)
-    } else if scheme == "s3" {
-        objectstore::s3::create_store(&url, object_store_configs, Duration::from_secs(300))
-    } else {
-        parse_url(&url)
-    }
-    .map_err(|e| ExecutionError::GeneralError(e.to_string()))?;
+    let (object_store, object_store_path): (Box<dyn ObjectStore>, Path) =
+        if scheme == "hdfs" || scheme == "s3a" {
+            parse_hdfs_url(&url)
+        } else if scheme == "s3" {
+            objectstore::s3::create_store(&url, object_store_configs, Duration::from_secs(300))
+        } else {
+            parse_url(&url)
+        }
+        .map_err(|e| ExecutionError::GeneralError(e.to_string()))?;
 
     let object_store_url = ObjectStoreUrl::parse(url_key.clone())?;
     runtime_env.register_object_store(&url, Arc::from(object_store));

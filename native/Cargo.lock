@@ -1416,7 +1416,6 @@ dependencies = [
  "async-trait",
  "bytes",
  "chrono",
- "fs-hdfs",
  "fs-hdfs3",
  "futures",
  "object_store",
@@ -2121,27 +2120,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "fs-hdfs"
-version = "0.1.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25f164ff6334da016dffd1c29a3c05b81c35b857ef829d3fa9e58ae8d3e6f76b"
-dependencies = [
- "bindgen 0.64.0",
- "cc",
- "lazy_static",
- "libc",
- "log",
- "url",
-]
-
-[[package]]
 name = "fs-hdfs3"
 version = "0.1.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0f38e500596a428817fd4fd8a9a21da32f4edb3250e87886039670b12ea02f5d"
 dependencies = [
  "bindgen 0.64.0",
  "cc",
+ "java-locator",
  "lazy_static",
  "libc",
  "log",
