@@ -133,6 +133,8 @@ class NativeUtil {
     // the Arrow arrays. For example, Iceberg column reader will skip deleted rows internally in
     // its `CometVector` implementation. The `ColumnarBatch` returned by the reader will report
     // logical number of rows which is less than actual number of rows due to row deletion.
+    // Similarly, CometSelectionVector represents a different number of logical rows than the
+    // underlying vector.
     numRows.headOption.getOrElse(batch.numRows())
   }
 
@@ -209,8 +211,15 @@ class NativeUtil {
     val arrayVectors = mutable.ArrayBuffer.empty[CometVector]
 
     for (i <- 0 until batch.numCols()) {
-      val column = batch.column(i).asInstanceOf[CometVector]
-      arrayVectors += column.slice(startIndex, maxNumRows)
+      batch.column(i) match {
+        case selectionVectorV2: CometSelectionVector =>
+          // For CometSelectionVector, slice the struct vector normally
+          arrayVectors += selectionVectorV2.slice(startIndex, maxNumRows)
+        case cometVector: CometVector =>
+          arrayVectors += cometVector.slice(startIndex, maxNumRows)
+        case c =>
+          throw new SparkException(s"Expected CometVector, but got ${c.getClass}")
+      }
     }
 
     new ColumnarBatch(arrayVectors.toArray, maxNumRows)

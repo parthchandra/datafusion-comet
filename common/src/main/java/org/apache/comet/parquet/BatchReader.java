@@ -88,7 +88,7 @@ import org.apache.comet.vector.CometVector;
  * </pre>
  */
 public class BatchReader extends RecordReader<Void, ColumnarBatch> implements Closeable {
-  private static final Logger LOG = LoggerFactory.getLogger(FileReader.class);
+  private static final Logger LOG = LoggerFactory.getLogger(BatchReader.class);
   protected static final BufferAllocator ALLOCATOR = new RootAllocator();
 
   private Configuration conf;

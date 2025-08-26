@@ -23,8 +23,8 @@ use crate::{
     },
     jvm_bridge::{jni_call, JVMClasses},
 };
-use arrow::array::{make_array, ArrayData, ArrayRef, RecordBatch, RecordBatchOptions};
-use arrow::compute::{cast_with_options, CastOptions};
+use arrow::array::{make_array, ArrayData, ArrayRef, RecordBatch, RecordBatchOptions, StructArray};
+use arrow::compute::{cast_with_options, take, CastOptions};
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use arrow::ffi::FFI_ArrowArray;
 use arrow::ffi::FFI_ArrowSchema;
@@ -288,16 +288,68 @@ impl ScanExec {
 
             let array = make_array(array_data);
 
-            let array = if arrow_ffi_safe {
-                // ownership of this array has been transferred to native
-                array
+            // Check if this is a selection vector struct (from CometSelectionVector)
+            // The struct should be named "selection_vector" and have two fields: "original_data" and "selection_indices"
+            let final_array = if matches!(array.data_type(), DataType::Struct(_)) {
+                let struct_array = array.as_any().downcast_ref::<StructArray>().unwrap();
+
+                // Check if this is a selection vector struct with the expected fields and name
+                if struct_array.num_columns() == 2 {
+                    let field_names: Vec<&str> = struct_array
+                        .fields()
+                        .iter()
+                        .map(|f| f.name().as_str())
+                        .collect();
+
+                    // Check if the root struct is named "selection_vector" by examining the data type string
+                    let is_selection_vector_struct = array
+                        .data_type()
+                        .to_string()
+                        .contains("comet_selection_vector");
+
+                    // Check if the struct contains the expected fields
+                    let has_expected_fields =
+                        field_names.contains(&"sv_values") && field_names.contains(&"sv_indices");
+
+                    if has_expected_fields && is_selection_vector_struct {
+                        // Extract the original data and selection indices from the struct
+                        let values = struct_array.column_by_name("sv_values").unwrap();
+                        let indices = struct_array.column_by_name("sv_indices").unwrap();
+
+                        // Apply the selection using Arrow's take kernel
+                        println!("COMET: ScanExec: has_next(): take selected values");
+                        match take(values, indices, None) {
+                            Ok(selected_array) => selected_array,
+                            Err(e) => {
+                                return Err(CometError::from(ExecutionError::ArrowError(format!(
+                                    "Failed to apply selection vector for column {i}: {e}",
+                                ))));
+                            }
+                        }
+                    } else {
+                        // Regular struct array or struct without expected name/fields
+                        array
+                    }
+                } else {
+                    // Regular struct array with different column count
+                    array
+                }
             } else {
-                // it is necessary to copy the array because the contents may be
-                // overwritten on the JVM side in the future
-                copy_array(&array)
+                // Regular non-struct array, use as-is
+                array
             };
 
-            inputs.push(array);
+let array = if arrow_ffi_safe {
+    // ownership of this array has been transferred to native
+    array
+} else {
+    // it is necessary to copy the array because the contents may be
+    // overwritten on the JVM side in the future
+    copy_array(&array)
+};
+
+inputs.push(array);
+
 
             // Drop the Arcs to avoid memory leak
             unsafe {
