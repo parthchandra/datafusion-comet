@@ -1,0 +1,74 @@
+PLANNING
+
+Initial SparkPlan
+        ProjectExec
+            FilterExec
+                ScanExec
+
+After ScanRule, Comet Plan
+        CometProjectExec
+            CometFilterExec
+                CometScanExec
+
+ExecRule ( ExecRule.transform()) Comet Plan
+        CometProjectExec (nativeOp = Project)
+            CometFilterExec (nativeOp = Filter)
+                CometScanWrapper (nativeOp = Scan, originalPlan = ScanExec)
+
+ExecRule (_apply). Calls convertBlock to create a serializedPlan from first native operator. Unwraps CometScan from CometScanWrapper
+        CometProjectExec (nativeOp = Project, serializedPlanOpt = Some(plan))
+            CometFilterExec (nativeOp = Filter, serializedPlanOpt = None)
+                CometScanWrapper (nativeOp = Scan, originalPlan = ScanExec). [Not a CometNativeExec]
+
+EXECUTION
+
+  JVM                                                                             |                   Native
+                                                                                  |
+  Comet Plan                                                                      |
+                                                                                  |
+    Comet Project Exec (instance of CometNativeExec)                              |
+          doExecuteColumnar                             CometExecIterator ==(jni_api.createPlan)==>   NativePlan(ExecutionContext in jni_api.rs)
+                                                        CometExecIterator ==(jni_api.executePlan)==>    (DataFusion)Projection Exec
+            ^                                                   :                 |                               ^
+            : input (RDD[ColumnarBatch])                        :                 |                               |
+            :                                                   :                 |                               |
+        Comet Filter  (instance of CometNativeExec)             :                 |                           FilterExec
+                  ^                                             :                 |                               ^
+                  : input (RDD[ColumnarBatch])                  :                 |                               |
+                  :                                             :                 |                               |
+            Comet Scan                                          :                 |                               |
+                  inputRDD - - - - - - - - - - - - -> CometBatchIterator - - - (jni_call)- - - - - - - - - - > ScanExec
+                    ^                                                             |
+                    |                                                             |
+                    |                                                             |
+                    |                                                             |
+                    +                                                             |
+                    + < - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  RecordBatchReader (native_iceberg_compat)
+                    |                                                             |
+                    + < - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -  BatchReader (native_datafusion)
+                                                                                  |
+                                                                                  |
+                                                                                  |
+
+EXECUTION FLOW
+           CometNativeExec.doExecuteColumnar is called on the first Comet operator that is an instance of CometNativeExec.
+           CometNativeExec is at the top of a pipeline that is a chain of CometNativeExecs culminating in an operator that is a CometInput, typically a CometScanExec or a CometShuffleExec
+           CometNativeExec.doExecuteColumnar collects a list of all the child plans that are Comet inputs,
+           It creates an CometExecIterator that will  return the results of the execution of  the native plan.
+                CometExecIterator creates a CometBatchIterator for each of the input child plans
+                It also creates a native plan from the protobuf representations of the chain of CometNativeExec operators
+                The native plan is provided with the list of iterators to the input plans. The leaf operator in the native plan will call the iterators to get the input data.
+
+           The iterators to the input plans are created by calling doExecuteColumnar on the input operators
+           CometExecIterator.getNext calls the native plan to get the next batch of results
+           The native plan calls the iterators to get the next batch of results from the input plans
+           The iterators return the next batch of results from the input plans
+
+
+
+Edge Case of Comet execution
+```
+    spark.read.format("parquet").schema(s).load(path)
+```
+
+There are no operators that are instances of CometNativeExec. CometScan doExecuteColumnar returns output to the next Spark operator in the chain.

@@ -43,6 +43,7 @@ use itertools::Itertools;
 use jni::objects::JValueGen;
 use jni::objects::{GlobalRef, JObject};
 use jni::sys::jsize;
+use log::debug;
 use std::rc::Rc;
 use std::{
     any::Any,
@@ -209,6 +210,7 @@ impl ScanExec {
             return Ok(InputBatch::EOF);
         }
 
+        debug!("COMET: ScanExec: [native] calling get_next");
         if iter.is_null() {
             return Err(CometError::from(ExecutionError::GeneralError(format!(
                 "Null batch iterator object. Plan id: {exec_context_id}"
@@ -223,6 +225,7 @@ impl ScanExec {
             jni_call!(&mut env,
         comet_batch_iterator(iter).has_next() -> i32)?
         };
+        debug!("COMET: ScanExec: [native] [jni_call] CometBatchIterator(iter).hasNext returned num_rows: {} ", num_rows);
 
         timer.stop();
 
@@ -265,6 +268,7 @@ impl ScanExec {
         comet_batch_iterator(iter).next(array_obj, schema_obj) -> i32)?
         };
 
+        debug!("COMET: ScanExec: [native] [jni_call, arrow_ffi] CometBatchIterator(iter).next returned num_rows: {} ", num_rows);
         // we already checked for end of results on call to has_next() so should always
         // have a valid row count when calling next()
         assert!(num_rows != -1);
@@ -287,6 +291,10 @@ impl ScanExec {
             let array = copy_array(&array);
 
             inputs.push(array);
+            debug!(
+            "COMET: ScanExec: [native] [arrow_ffi] data moved from Spark to Native [col {}]",
+            i
+            );
 
             // Drop the Arcs to avoid memory leak
             unsafe {

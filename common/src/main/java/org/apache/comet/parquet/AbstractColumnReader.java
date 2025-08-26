@@ -119,7 +119,7 @@ public abstract class AbstractColumnReader implements AutoCloseable {
   }
 
   protected void initNative() {
-    LOG.debug("initializing the native column reader");
+    LOG.debug("COMET: AbstractColumnReader: [jvm] initializing the native column reader");
     DataType readType = (boolean) CometConf.COMET_SCHEMA_EVOLUTION_ENABLED().get() ? type : null;
     boolean useLegacyDateTimestampOrNTZ =
         useLegacyDateTimestamp || type == TimestampNTZType$.MODULE$;

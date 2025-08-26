@@ -88,7 +88,7 @@ import org.apache.comet.vector.CometVector;
  * </pre>
  */
 public class BatchReader extends RecordReader<Void, ColumnarBatch> implements Closeable {
-  private static final Logger LOG = LoggerFactory.getLogger(FileReader.class);
+  private static final Logger LOG = LoggerFactory.getLogger(BatchReader.class);
   protected static final BufferAllocator ALLOCATOR = new RootAllocator();
 
   private Configuration conf;
@@ -235,6 +235,7 @@ public class BatchReader extends RecordReader<Void, ColumnarBatch> implements Cl
    * any resource hold by this reader when error happens during the initialization.
    */
   public void init() throws URISyntaxException, IOException {
+    LOG.debug("COMET: BatchReader [jvm] Initialized new BatchReader");
     useDecimal128 =
         conf.getBoolean(
             CometConf.COMET_USE_DECIMAL_128().key(),
@@ -450,6 +451,7 @@ public class BatchReader extends RecordReader<Void, ColumnarBatch> implements Cl
    * @return true if there are no more rows to read, false otherwise.
    */
   public boolean nextBatch() throws IOException {
+    LOG.debug("COMET: BatchReader [jvm] nextBatch");
     if (this.prefetchTask == null) {
       Preconditions.checkState(isInitialized, "init() should be called first!");
     } else {
@@ -503,9 +505,12 @@ public class BatchReader extends RecordReader<Void, ColumnarBatch> implements Cl
     for (int i = 0; i < columnReaders.length; i++) {
       AbstractColumnReader reader = columnReaders[i];
       long startNs = System.nanoTime();
+
+      LOG.debug("COMET: BatchReader [jvm] reading batch for column " + reader.descriptor.getPath());
       reader.readBatch(batchSize);
       totalDecodeTime += System.nanoTime() - startNs;
       startNs = System.nanoTime();
+      //TODO: if there is a row id mapping available, then apply a selection vector here
       vectors[i] = reader.currentBatch();
       totalLoadTime += System.nanoTime() - startNs;
     }
@@ -529,6 +534,8 @@ public class BatchReader extends RecordReader<Void, ColumnarBatch> implements Cl
     if (columnReaders != null) {
       for (AbstractColumnReader reader : columnReaders) {
         if (reader != null) {
+          LOG.debug(
+              "COMET: BatchReader [jvm] closing reader for column " + reader.descriptor.getPath());
           reader.close();
         }
       }
@@ -545,6 +552,7 @@ public class BatchReader extends RecordReader<Void, ColumnarBatch> implements Cl
 
   @SuppressWarnings("deprecation")
   private boolean loadNextRowGroupIfNecessary() throws Throwable {
+    LOG.debug("COMET: BatchReader [jvm] reading next row group");
     // More rows can be read from loaded row group. No need to load next one.
     if (rowsRead != totalRowsLoaded) return true;
 
@@ -565,6 +573,7 @@ public class BatchReader extends RecordReader<Void, ColumnarBatch> implements Cl
       FileSystem.getAllStatistics().stream()
           .forEach(statistic -> statistic.incrementBytesRead(incBytesRead));
     } else {
+      LOG.debug("COMET: BatchReader [jvm] reading next row group (file reader)");
       rowGroupReader = fileReader.readNextRowGroup();
     }
 
@@ -598,6 +607,7 @@ public class BatchReader extends RecordReader<Void, ColumnarBatch> implements Cl
               useDecimal128,
               useLazyMaterialization,
               useLegacyDateTimestamp);
+      LOG.debug("COMET: BatchReader [jvm] setting page reader for column " + (i + 1));
       reader.setPageReader(rowGroupReader.getPageReader(columns.get(i)));
       columnReaders[i] = reader;
     }
