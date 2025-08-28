@@ -510,7 +510,7 @@ public class BatchReader extends RecordReader<Void, ColumnarBatch> implements Cl
       reader.readBatch(batchSize);
       totalDecodeTime += System.nanoTime() - startNs;
       startNs = System.nanoTime();
-      //TODO: if there is a row id mapping available, then apply a selection vector here
+      // TODO: if there is a row id mapping available, then apply a selection vector here
       vectors[i] = reader.currentBatch();
       totalLoadTime += System.nanoTime() - startNs;
     }

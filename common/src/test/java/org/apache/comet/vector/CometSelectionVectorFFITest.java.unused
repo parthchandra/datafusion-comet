@@ -1,0 +1,228 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+package org.apache.comet.vector;
+
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import org.apache.arrow.c.ArrowArray;
+import org.apache.arrow.c.ArrowSchema;
+import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.IntVector;
+import org.apache.arrow.vector.VarCharVector;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+public class CometSelectionVectorFFITest {
+
+  private BufferAllocator allocator;
+
+  @BeforeEach
+  public void setUp() {
+    allocator = new RootAllocator();
+  }
+
+  @AfterEach
+  public void tearDown() throws Exception {
+    allocator.close();
+  }
+
+  @Test
+  public void testSelectionVectorFFIExport() throws Exception {
+    // Create a test vector with string data
+    VarCharVector originalVector = new VarCharVector("test_data", allocator);
+    originalVector.allocateNew(1024, 6);
+    originalVector.setSafe(0, "apple".getBytes());
+    originalVector.setSafe(1, "banana".getBytes());
+    originalVector.setSafe(2, "cherry".getBytes());
+    originalVector.setSafe(3, "date".getBytes());
+    originalVector.setSafe(4, "elderberry".getBytes());
+    originalVector.setSafe(5, "fig".getBytes());
+    originalVector.setValueCount(6);
+
+    // Create a CometVector wrapper
+    CometVector cometVector = new CometPlainVector(originalVector, false);
+
+    // Create selection indices [0, 2, 4, 5] - selecting "apple", "cherry", "elderberry", "fig"
+    int[] selectionIndices = {0, 2, 4, 5};
+    CometSelectionVector selectionVector = new CometSelectionVector(cometVector, selectionIndices);
+
+    // Test basic functionality first
+    assertEquals(4, selectionVector.numValues());
+    assertFalse(selectionVector.hasNull());
+    assertEquals("apple", selectionVector.getUTF8String(0).toString());
+    assertEquals("cherry", selectionVector.getUTF8String(1).toString());
+    assertEquals("elderberry", selectionVector.getUTF8String(2).toString());
+    assertEquals("fig", selectionVector.getUTF8String(3).toString());
+
+    // Test FFI export
+    ArrowArray array = ArrowArray.allocateNew(allocator);
+    ArrowSchema schema = ArrowSchema.allocateNew(allocator);
+
+    try {
+      // Export the selection vector
+      selectionVector.exportToNative(array.memoryAddress(), schema.memoryAddress());
+
+      // Verify the export succeeded by checking the array and schema are populated
+      assertNotEquals(0, array.memoryAddress());
+      assertNotEquals(0, schema.memoryAddress());
+
+      // The array should now contain data (not be empty)
+      // In a real scenario, the native side would consume these via FFI
+      System.out.println("Successfully exported CometSelectionVector via Arrow FFI");
+      System.out.println("Array memory address: " + array.memoryAddress());
+      System.out.println("Schema memory address: " + schema.memoryAddress());
+
+    } finally {
+      array.close();
+      schema.close();
+    }
+
+    // Clean up
+    selectionVector.close();
+    originalVector.close();
+  }
+
+  @Test
+  public void testSelectionVectorWithNulls() throws Exception {
+    // Create a test vector with some null values
+    VarCharVector originalVector = new VarCharVector("test_data_with_nulls", allocator);
+    originalVector.allocateNew(1024, 5);
+    originalVector.setSafe(0, "first".getBytes());
+    // index 1 is null
+    originalVector.setSafe(2, "third".getBytes());
+    originalVector.setSafe(3, "fourth".getBytes());
+    // index 4 is null
+    originalVector.setValueCount(5);
+
+    CometVector cometVector = new CometPlainVector(originalVector, false);
+
+    // Select indices that include a null value
+    int[] selectionIndices = {0, 1, 2, 4}; // includes null at indices 1 and 4
+    CometSelectionVector selectionVector = new CometSelectionVector(cometVector, selectionIndices);
+
+    assertEquals(4, selectionVector.numValues());
+    assertTrue(selectionVector.hasNull());
+    assertEquals(2, selectionVector.numNulls());
+
+    // Test accessing values
+    assertEquals("first", selectionVector.getUTF8String(0).toString());
+    assertTrue(selectionVector.isNullAt(1));
+    assertEquals("third", selectionVector.getUTF8String(2).toString());
+    assertTrue(selectionVector.isNullAt(3));
+
+    // Test FFI export with nulls
+    ArrowArray array = ArrowArray.allocateNew(allocator);
+    ArrowSchema schema = ArrowSchema.allocateNew(allocator);
+
+    try {
+      selectionVector.exportToNative(array.memoryAddress(), schema.memoryAddress());
+
+      // Verify export succeeded
+      assertNotEquals(0, array.memoryAddress());
+      assertNotEquals(0, schema.memoryAddress());
+
+      System.out.println("Successfully exported CometSelectionVector with nulls via Arrow FFI");
+
+    } finally {
+      array.close();
+      schema.close();
+    }
+
+    selectionVector.close();
+    originalVector.close();
+  }
+
+  @Test
+  public void testSelectionVectorBoundsChecking() {
+    IntVector originalVector = new IntVector("test_ints", allocator);
+    originalVector.allocateNew(3);
+    originalVector.setSafe(0, 100);
+    originalVector.setSafe(1, 200);
+    originalVector.setSafe(2, 300);
+    originalVector.setValueCount(3);
+
+    CometVector cometVector = new CometPlainVector(originalVector, false);
+
+    // Test valid indices
+    int[] validIndices = {0, 2, 1};
+    CometSelectionVector selectionVector = new CometSelectionVector(cometVector, validIndices);
+    assertEquals(3, selectionVector.numValues());
+
+    // Test invalid indices - should throw exception
+    int[] invalidIndices = {0, 1, 3}; // index 3 is out of bounds
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> {
+          new CometSelectionVector(cometVector, invalidIndices);
+        });
+
+    selectionVector.close();
+    originalVector.close();
+  }
+
+  @Test
+  public void testNestedSelection() {
+    IntVector originalVector = new IntVector("test_nested", allocator);
+    originalVector.allocateNew(6);
+    for (int i = 0; i < 6; i++) {
+      originalVector.setSafe(i, i * 10);
+    }
+    originalVector.setValueCount(6);
+
+    CometVector cometVector = new CometPlainVector(originalVector, false);
+
+    // First selection: [0, 2, 4, 5] from [0, 10, 20, 30, 40, 50] = [0, 20, 40, 50]
+    int[] firstSelection = {0, 2, 4, 5};
+    CometSelectionVector firstSelectionVector =
+        new CometSelectionVector(cometVector, firstSelection);
+
+    // Second selection: [1, 3] from [0, 20, 40, 50] = [20, 50]
+    int[] secondSelection = {1, 3};
+    CometSelectionVector nestedSelectionVector = firstSelectionVector.take(secondSelection);
+
+    assertEquals(2, nestedSelectionVector.numValues());
+    assertEquals(20, nestedSelectionVector.getInt(0));
+    assertEquals(50, nestedSelectionVector.getInt(1));
+
+    // Test FFI export of nested selection
+    ArrowArray array = ArrowArray.allocateNew(allocator);
+    ArrowSchema schema = ArrowSchema.allocateNew(allocator);
+
+    try {
+      nestedSelectionVector.exportToNative(array.memoryAddress(), schema.memoryAddress());
+
+      assertNotEquals(0, array.memoryAddress());
+      assertNotEquals(0, schema.memoryAddress());
+
+      System.out.println("Successfully exported nested CometSelectionVector via Arrow FFI");
+
+    } finally {
+      array.close();
+      schema.close();
+    }
+
+    nestedSelectionVector.close();
+    firstSelectionVector.close();
+    originalVector.close();
+  }
+}

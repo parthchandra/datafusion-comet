@@ -21,6 +21,7 @@ pub mod jni_api;
 mod metrics;
 pub mod operators;
 pub(crate) mod planner;
+pub mod selection_vector;
 pub mod serde;
 pub mod shuffle;
 pub(crate) mod sort;

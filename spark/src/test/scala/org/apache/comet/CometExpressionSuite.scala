@@ -592,9 +592,7 @@ class CometExpressionSuite extends CometTestBase with AdaptiveSparkPlanHelper {
                 "cast(_4 as date) tz_micros_to_date, " +
                 "cast(_5 as date) ntz_micros_to_date " +
                 " from timetbl" +
-                " where _2  > _4 "
-
-            )
+                " where _2  > _4 ")
           }
         }
       }

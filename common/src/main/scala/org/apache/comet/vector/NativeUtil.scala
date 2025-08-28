@@ -96,6 +96,43 @@ class NativeUtil {
 
     (0 until batch.numCols()).foreach { index =>
       batch.column(index) match {
+        case selectionVectorV2: CometSelectionVectorV2 =>
+          // Handle CometSelectionVectorV2 - it's a struct vector that gets exported normally
+          val valueVector = selectionVectorV2.getValueVector
+
+          numRows += selectionVectorV2.numValues()
+
+          val provider = if (valueVector.getField.getDictionary != null) {
+            selectionVectorV2.getDictionaryProvider
+          } else {
+            null
+          }
+
+          // The array and schema structures are allocated by native side.
+          // Export the struct vector containing original_data and selection_indices
+          val arrowSchema = ArrowSchema.wrap(schemaAddrs(index))
+          val arrowArray = ArrowArray.wrap(arrayAddrs(index))
+          Data.exportVector(
+            allocator,
+            getFieldVector(valueVector, "export"),
+            provider,
+            arrowArray,
+            arrowSchema)
+
+        case selectionVector: CometSelectionVector =>
+          // Handle CometSelectionVector specially - export both original data and selection indices
+          numRows += selectionVector.numValues()
+
+          try {
+            // Use the selection vector's native export functionality
+            selectionVector.exportToNative(arrayAddrs(index), schemaAddrs(index))
+          } catch {
+            case e: Exception =>
+              throw new SparkException(
+                s"Failed to export CometSelectionVector at column ${index}: ${e.getMessage}",
+                e)
+          }
+
         case a: CometVector =>
           val valueVector = a.getValueVector
 
@@ -133,6 +170,8 @@ class NativeUtil {
     // the Arrow arrays. For example, Iceberg column reader will skip deleted rows internally in
     // its `CometVector` implementation. The `ColumnarBatch` returned by the reader will report
     // logical number of rows which is less than actual number of rows due to row deletion.
+    // Similarly, CometSelectionVector represents a different number of logical rows than the
+    // underlying vector.
     numRows.headOption.getOrElse(batch.numRows())
   }
 
@@ -209,8 +248,18 @@ class NativeUtil {
     val arrayVectors = mutable.ArrayBuffer.empty[CometVector]
 
     for (i <- 0 until batch.numCols()) {
-      val column = batch.column(i).asInstanceOf[CometVector]
-      arrayVectors += column.slice(startIndex, maxNumRows)
+      batch.column(i) match {
+        case selectionVectorV2: CometSelectionVectorV2 =>
+          // For CometSelectionVectorV2, slice the struct vector normally
+          arrayVectors += selectionVectorV2.slice(startIndex, maxNumRows)
+        case selectionVector: CometSelectionVector =>
+          // For selection vectors, slice the selection indices rather than the underlying data
+          arrayVectors += selectionVector.slice(startIndex, maxNumRows)
+        case cometVector: CometVector =>
+          arrayVectors += cometVector.slice(startIndex, maxNumRows)
+        case c =>
+          throw new SparkException(s"Expected CometVector, but got ${c.getClass}")
+      }
     }
 
     new ColumnarBatch(arrayVectors.toArray, maxNumRows)

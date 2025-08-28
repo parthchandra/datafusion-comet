@@ -23,8 +23,8 @@ use crate::{
     },
     jvm_bridge::{jni_call, JVMClasses},
 };
-use arrow::array::{make_array, ArrayData, ArrayRef, RecordBatch, RecordBatchOptions};
-use arrow::compute::{cast_with_options, CastOptions};
+use arrow::array::{make_array, ArrayData, ArrayRef, RecordBatch, RecordBatchOptions, StructArray};
+use arrow::compute::{cast_with_options, take, CastOptions};
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use arrow::ffi::FFI_ArrowArray;
 use arrow::ffi::FFI_ArrowSchema;
@@ -290,10 +290,60 @@ impl ScanExec {
             // TODO optimize this so that we only do this for Parquet inputs!
             let array = copy_array(&array);
 
-            inputs.push(array);
+            // Check if this is a selection vector struct (from CometSelectionVectorV2)
+            // The struct should have two fields: "original_data" and "selection_indices"
+            let final_array = if matches!(array.data_type(), DataType::Struct(_)) {
+                let struct_array = array.as_any().downcast_ref::<StructArray>().unwrap();
+
+                // Check if this is a selection vector struct with the expected fields
+                if struct_array.num_columns() == 2 {
+                    let field_names: Vec<&str> = struct_array
+                        .fields()
+                        .iter()
+                        .map(|f| f.name().as_str())
+                        .collect();
+
+                    if field_names.contains(&"original_data")
+                        && field_names.contains(&"selection_indices")
+                    {
+                        debug!(
+                            "COMET: ScanExec: [native] [arrow_ffi] applying selection vector V2 for column {}",
+                            i
+                        );
+
+                        // Extract the original data and selection indices from the struct
+                        let original_data_column =
+                            struct_array.column_by_name("original_data").unwrap();
+                        let selection_indices_column =
+                            struct_array.column_by_name("selection_indices").unwrap();
+
+                        // Apply the selection using Arrow's take kernel
+                        match take(original_data_column, selection_indices_column, None) {
+                            Ok(selected_array) => selected_array,
+                            Err(e) => {
+                                return Err(CometError::from(ExecutionError::ArrowError(format!(
+                                    "Failed to apply selection vector V2 for column {}: {}",
+                                    i, e
+                                ))));
+                            }
+                        }
+                    } else {
+                        // Regular struct array, use as-is
+                        array
+                    }
+                } else {
+                    // Regular struct array, use as-is
+                    array
+                }
+            } else {
+                // Regular array, use as-is
+                array
+            };
+
+            inputs.push(final_array);
             debug!(
-            "COMET: ScanExec: [native] [arrow_ffi] data moved from Spark to Native [col {}]",
-            i
+                "COMET: ScanExec: [native] [arrow_ffi] data moved from Spark to Native [col {}]",
+                i
             );
 
             // Drop the Arcs to avoid memory leak
