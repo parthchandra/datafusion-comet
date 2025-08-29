@@ -21,9 +21,6 @@ package org.apache.comet;
 
 import scala.collection.Iterator;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import org.apache.spark.sql.vectorized.ColumnarBatch;
 
 import org.apache.comet.vector.NativeUtil;
@@ -34,7 +31,6 @@ import org.apache.comet.vector.NativeUtil;
  * called by native code to retrieve Arrow arrays from Spark through JNI.
  */
 public class CometBatchIterator {
-  private static final Logger LOG = LoggerFactory.getLogger(CometBatchIterator.class);
   final Iterator<ColumnarBatch> input;
   final NativeUtil nativeUtil;
   private ColumnarBatch currentBatch = null;
@@ -50,7 +46,6 @@ public class CometBatchIterator {
    * @return Number of rows in next batch or -1 if no batches left.
    */
   public int hasNext() {
-    LOG.debug("COMET: CometBatchIterator: [jvm] CometBatchIterator.hasNext()");
     if (currentBatch == null) {
       if (input.hasNext()) {
         currentBatch = input.next();
@@ -71,12 +66,10 @@ public class CometBatchIterator {
    * @return the number of rows of the current batch. -1 if there is no more batch.
    */
   public int next(long[] arrayAddrs, long[] schemaAddrs) {
-    LOG.debug("COMET: CometBatchIterator: [jvm] CometBatchIterator.next()");
     if (currentBatch == null) {
       return -1;
     }
     int numRows = nativeUtil.exportBatch(arrayAddrs, schemaAddrs, currentBatch);
-    LOG.debug("COMET: CometBatchIterator: [jvm] moved arrow vectors to native");
     currentBatch = null;
     return numRows;
   }

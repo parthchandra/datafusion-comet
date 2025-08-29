@@ -181,7 +181,7 @@ public class ColumnReader extends AbstractColumnReader {
 
   /** Returns a decoded {@link CometDecodedVector Comet vector}. */
   public CometDecodedVector loadVector() {
-    LOG.debug("COMET: ColumnReader [jvm] reloading vector for column " + this.descriptor.getPath());
+    LOG.debug("Reloading vector");
 
     // Close the previous vector first to release struct memory allocated to import Arrow array &
     // schema from native side, through the C data interface
@@ -200,22 +200,13 @@ public class ColumnReader extends AbstractColumnReader {
     long arrayAddr = array.memoryAddress();
     long schemaAddr = schema.memoryAddress();
 
-    LOG.debug(
-        "COMET: ColumnReader [jvm] allocated arrow vector buffers for column "
-            + this.descriptor.getPath());
     Native.currentBatch(nativeHandle, arrayAddr, schemaAddr);
-    LOG.debug(
-        "COMET: ColumnReader [jvm] read arrow vector for column " + this.descriptor.getPath());
 
     FieldVector vector = importer.importVector(array, schema);
-    LOG.debug(
-        "COMET: ColumnReader [jvm] moved arrow vector to jvm for column "
-            + this.descriptor.getPath());
 
     DictionaryEncoding dictionaryEncoding = vector.getField().getDictionary();
 
     CometPlainVector cometVector = new CometPlainVector(vector, useDecimal128);
-    LOG.debug("COMET: ColumnReader [jvm] new Comet Vector for column " + this.descriptor.getPath());
 
     // Update whether the current vector contains any null values. This is used in the following
     // batch(s) to determine whether we can skip loading the native vector.
@@ -256,9 +247,6 @@ public class ColumnReader extends AbstractColumnReader {
   }
 
   protected void readPage() {
-    LOG.debug(
-        "COMET: ColumnReader [jvm] read Page from page reader for column "
-            + this.descriptor.getPath());
     DataPage page = pageReader.readPage();
     if (page == null) {
       throw new RuntimeException("overreading: returned DataPage is null");

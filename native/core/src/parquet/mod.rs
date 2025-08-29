@@ -66,7 +66,6 @@ use jni::objects::{
     JBooleanArray, JByteArray, JLongArray, JMap, JObject, JPrimitiveArray, JString, ReleaseMode,
 };
 use jni::sys::{jstring, JNI_FALSE};
-use log::debug;
 use object_store::path::Path;
 use read::ColumnReader;
 use util::jni::{convert_column_descriptor, convert_encoding, deserialize_schema};
@@ -134,12 +133,7 @@ pub extern "system" fn Java_org_apache_comet_parquet_Native_initColumnReader(
             last_data_page: None,
         };
         let res = Box::new(ctx);
-        let r = Box::into_raw(res) as i64;
-        debug!(
-            "COMET: Parquet: [native] [jni] initializing native column reader {}",
-            r
-        );
-        Ok(r)
+        Ok(Box::into_raw(res) as i64)
     })
 }
 
@@ -155,10 +149,6 @@ pub unsafe extern "system" fn Java_org_apache_comet_parquet_Native_setDictionary
     encoding: jint,
 ) {
     try_unwrap_or_throw(&e, |env| {
-        debug!(
-            "COMET: Parquet: [native] [jni] set dictionary page {}",
-            handle
-        );
         let reader = get_reader(handle)?;
 
         // convert value encoding ordinal to the native encoding definition
@@ -187,7 +177,6 @@ pub unsafe extern "system" fn Java_org_apache_comet_parquet_Native_setPageV1(
     value_encoding: jint,
 ) {
     try_unwrap_or_throw(&e, |env| {
-        debug!("COMET: Parquet: [native] [jni] set page v1 {}", handle);
         let reader = get_reader(handle)?;
 
         // convert value encoding ordinal to the native encoding definition
@@ -368,7 +357,6 @@ pub extern "system" fn Java_org_apache_comet_parquet_Native_setLong(
     value: jlong,
 ) {
     try_unwrap_or_throw(&env, |_| {
-        debug!("COMET: Parquet: [native] [jni] set long  {}", handle);
         let reader = get_reader(handle)?;
         reader.set_fixed::<i64>(value);
         Ok(())
@@ -541,7 +529,6 @@ pub extern "system" fn Java_org_apache_comet_parquet_Native_readBatch(
     null_pad_size: jint,
 ) -> jintArray {
     try_unwrap_or_throw(&e, |env| {
-        debug!("COMET: Parquet: [native] [jni] read batch {}", handle);
         let reader = get_reader(handle)?;
         let (num_values, num_nulls) =
             reader.read_batch(batch_size as usize, null_pad_size as usize);
@@ -604,10 +591,6 @@ pub extern "system" fn Java_org_apache_comet_parquet_Native_closeColumnReader(
     handle: jlong,
 ) {
     try_unwrap_or_throw(&env, |_| {
-        debug!(
-            "COMET: Parquet: [native] [jni] close column reader {}",
-            handle
-        );
         unsafe {
             let ctx = get_context(handle)?;
             let _ = Box::from_raw(ctx);

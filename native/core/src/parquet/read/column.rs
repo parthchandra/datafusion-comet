@@ -22,7 +22,7 @@ use arrow::{
     buffer::{Buffer, MutableBuffer},
     datatypes::{ArrowNativeType, DataType as ArrowDataType, TimeUnit},
 };
-use log::debug;
+
 use parquet::{
     basic::{Encoding, LogicalType, TimeUnit as ParquetTimeUnit, Type as PhysicalType},
     schema::types::{ColumnDescPtr, ColumnDescriptor},
@@ -102,10 +102,6 @@ impl ColumnReader {
         let read_options = ReadOptions {
             use_legacy_date_timestamp_or_ntz,
         };
-        debug!(
-            "COMET: ColumnReader: [native] [{:?}] [{:?}] ",
-            desc, promotion_info
-        );
         macro_rules! typed_reader {
             ($reader_ty:ident, $arrow_ty:ident) => {
                 Self::$reader_ty(TypedColumnReader::new(
@@ -668,12 +664,7 @@ impl<T: DataType> TypedColumnReader<T> {
         arrow_type: ArrowDataType,
         read_options: ReadOptions,
     ) -> Self {
-        debug!(
-            "COMET: TypedColumnReader: [native] Creating TypedColumnReader for {}",
-            desc.name()
-        );
         let vector = ParquetMutableVector::new(capacity, &arrow_type);
-        debug!("COMET: TypedColumnReader: [native] Creatied new ParquetMutableVector for arrow type {}", arrow_type);
         let bit_width = ParquetMutableVector::bit_width(&arrow_type);
         Self {
             desc: Arc::new(desc),
@@ -734,10 +725,6 @@ impl<T: DataType> TypedColumnReader<T> {
         let previous_num_nulls = self.vector.num_nulls;
         self.vector.put_nulls(null_pad_size);
         dl_decoder.read_batch(n, &mut self.vector, value_decoder.as_mut());
-        debug!(
-            "COMET: TypedColumnReader: [native] ReadBatch for {}",
-            self.desc.name()
-        );
 
         (n, self.vector.num_nulls - previous_num_nulls)
     }
@@ -783,10 +770,6 @@ impl<T: DataType> TypedColumnReader<T> {
         // Here, we convert `PLAIN` from v2 dictionary page to `PLAIN_DICTIONARY`, so that v1 and v2
         // shares the same encoding. Later on, `get_decoder` will use the `PlainDecoder` for this
         // case.
-        debug!(
-            "COMET: TypedColumnReader: [native] set dictionary page for {}",
-            self.desc.name()
-        );
         if encoding == Encoding::PLAIN {
             encoding = Encoding::PLAIN_DICTIONARY;
         }
@@ -819,10 +802,6 @@ impl<T: DataType> TypedColumnReader<T> {
         page_data: Buffer,
         mut encoding: Encoding,
     ) {
-        debug!(
-            "COMET: TypedColumnReader: [native] set page v1 for {}",
-            self.desc.name()
-        );
         // In v1, when data is encoded with dictionary, data page uses `PLAIN_DICTIONARY`, while v2
         // uses  `RLE_DICTIONARY`. To consolidate the two, here we convert `PLAIN_DICTIONARY` to
         // `RLE_DICTIONARY` following v2. Later on, `get_decoder` will use `DictDecoder` for this
