@@ -96,8 +96,8 @@ class NativeUtil {
 
     (0 until batch.numCols()).foreach { index =>
       batch.column(index) match {
-        case selectionVectorV2: CometSelectionVectorV2 =>
-          // Handle CometSelectionVectorV2 - it's a struct vector that gets exported normally
+        case selectionVectorV2: CometSelectionVector =>
+          // Handle CometSelectionVector - it's a struct vector that gets exported normally
           val valueVector = selectionVectorV2.getValueVector
 
           numRows += selectionVectorV2.numValues()
@@ -118,20 +118,6 @@ class NativeUtil {
             provider,
             arrowArray,
             arrowSchema)
-
-        case selectionVector: CometSelectionVector =>
-          // Handle CometSelectionVector specially - export both original data and selection indices
-          numRows += selectionVector.numValues()
-
-          try {
-            // Use the selection vector's native export functionality
-            selectionVector.exportToNative(arrayAddrs(index), schemaAddrs(index))
-          } catch {
-            case e: Exception =>
-              throw new SparkException(
-                s"Failed to export CometSelectionVector at column ${index}: ${e.getMessage}",
-                e)
-          }
 
         case a: CometVector =>
           val valueVector = a.getValueVector
@@ -249,12 +235,9 @@ class NativeUtil {
 
     for (i <- 0 until batch.numCols()) {
       batch.column(i) match {
-        case selectionVectorV2: CometSelectionVectorV2 =>
-          // For CometSelectionVectorV2, slice the struct vector normally
+        case selectionVectorV2: CometSelectionVector =>
+          // For CometSelectionVector, slice the struct vector normally
           arrayVectors += selectionVectorV2.slice(startIndex, maxNumRows)
-        case selectionVector: CometSelectionVector =>
-          // For selection vectors, slice the selection indices rather than the underlying data
-          arrayVectors += selectionVector.slice(startIndex, maxNumRows)
         case cometVector: CometVector =>
           arrayVectors += cometVector.slice(startIndex, maxNumRows)
         case c =>

@@ -285,21 +285,6 @@ public final class Native extends NativeBase {
       long handle, int columnNum, long arrayAddr, long schemaAddr);
 
   /**
-   * Exports a CometSelectionVector to native side via Arrow FFI. The selection vector is exported
-   * as a struct containing both the original data vector and selection indices array.
-   *
-   * @param selectionVector the CometSelectionVector to export
-   * @param arrayAddr memory address of the ArrowArray struct to write to
-   * @param schemaAddr memory address of the ArrowSchema struct to write to
-   * @throws Exception if export fails
-   */
-  public static void exportSelectionVector(
-      org.apache.comet.vector.CometSelectionVector selectionVector, long arrayAddr, long schemaAddr)
-      throws Exception {
-    selectionVector.exportToNative(arrayAddr, schemaAddr);
-  }
-
-  /**
    * Exports a Java int array to native Rust memory and returns a pointer to the exported array. The
    * array data is copied to Rust-managed memory and must be freed using freeExportedIntArray.
    *

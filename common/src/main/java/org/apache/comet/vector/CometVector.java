@@ -226,23 +226,6 @@ public abstract class CometVector extends ColumnVector {
   public abstract CometVector slice(int offset, int length);
 
   /**
-   * Returns a zero-copy selection vector containing only the elements at the specified indices.
-   * This method provides efficient access to a subset of the vector without copying the underlying
-   * data.
-   *
-   * <p>For example, if this vector has values [v0, v1, v2, v3, v4, v5, v6, v7] and indices are [0,
-   * 1, 3, 4, 5, 7], then the returned selection vector will logically represent [v0, v1, v3, v4,
-   * v5, v7] without actually copying the data.
-   *
-   * @param indices the indices to select from this vector
-   * @return a new CometSelectionVector containing the selected elements
-   * @throws IllegalArgumentException if any index is out of bounds
-   */
-  public CometSelectionVector take(int[] indices) {
-    return new CometSelectionVector(this, indices);
-  }
-
-  /**
    * Returns a corresponding `CometVector` implementation based on the given Arrow `ValueVector`.
    *
    * @param vector Arrow `ValueVector`

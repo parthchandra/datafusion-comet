@@ -290,12 +290,12 @@ impl ScanExec {
             // TODO optimize this so that we only do this for Parquet inputs!
             let array = copy_array(&array);
 
-            // Check if this is a selection vector struct (from CometSelectionVectorV2)
-            // The struct should have two fields: "original_data" and "selection_indices"
+            // Check if this is a selection vector struct (from CometSelectionVector)
+            // The struct should be named "selection_vector" and have two fields: "original_data" and "selection_indices"
             let final_array = if matches!(array.data_type(), DataType::Struct(_)) {
                 let struct_array = array.as_any().downcast_ref::<StructArray>().unwrap();
 
-                // Check if this is a selection vector struct with the expected fields
+                // Check if this is a selection vector struct with the expected fields and name
                 if struct_array.num_columns() == 2 {
                     let field_names: Vec<&str> = struct_array
                         .fields()
@@ -303,11 +303,17 @@ impl ScanExec {
                         .map(|f| f.name().as_str())
                         .collect();
 
-                    if field_names.contains(&"original_data")
-                        && field_names.contains(&"selection_indices")
-                    {
+                    // Check if the struct contains the expected fields
+                    let has_expected_fields = field_names.contains(&"original_data")
+                        && field_names.contains(&"selection_indices");
+
+                    // Check if the root struct is named "selection_vector" by examining the data type string
+                    let is_selection_vector_struct =
+                        array.data_type().to_string().contains("selection_vector");
+
+                    if has_expected_fields && is_selection_vector_struct {
                         debug!(
-                            "COMET: ScanExec: [native] [arrow_ffi] applying selection vector V2 for column {}",
+                            "COMET: ScanExec: [native] [arrow_ffi] applying selection vector for column {}",
                             i
                         );
 
@@ -322,21 +328,21 @@ impl ScanExec {
                             Ok(selected_array) => selected_array,
                             Err(e) => {
                                 return Err(CometError::from(ExecutionError::ArrowError(format!(
-                                    "Failed to apply selection vector V2 for column {}: {}",
+                                    "Failed to apply selection vector for column {}: {}",
                                     i, e
                                 ))));
                             }
                         }
                     } else {
-                        // Regular struct array, use as-is
+                        // Regular struct array or struct without expected name/fields
                         array
                     }
                 } else {
-                    // Regular struct array, use as-is
+                    // Regular struct array with different column count
                     array
                 }
             } else {
-                // Regular array, use as-is
+                // Regular non-struct array, use as-is
                 array
             };
 
