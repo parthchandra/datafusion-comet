@@ -308,7 +308,6 @@ impl ScanExec {
                         array.data_type().to_string().contains("selection_vector");
 
                     if has_expected_fields && is_selection_vector_struct {
-
                         // Extract the original data and selection indices from the struct
                         let original_data_column =
                             struct_array.column_by_name("original_data").unwrap();
@@ -339,11 +338,6 @@ impl ScanExec {
             };
 
             inputs.push(final_array);
-            debug!(
-                "COMET: ScanExec: [native] [arrow_ffi] data moved from Spark to Native [col {}]",
-                i
-            );
-
             // Drop the Arcs to avoid memory leak
             unsafe {
                 Rc::from_raw(array_ptr as *const FFI_ArrowArray);
