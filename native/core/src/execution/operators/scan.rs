@@ -281,11 +281,6 @@ impl ScanExec {
 
             let array = make_array(array_data);
 
-            // we copy the array to that we don't have to worry about potential memory
-            // corruption issues later on if underlying buffers are reused or freed
-            // TODO optimize this so that we only do this for Parquet inputs!
-            let array = copy_array(&array);
-
             // Check if this is a selection vector struct (from CometSelectionVector)
             // The struct should be named "selection_vector" and have two fields: "original_data" and "selection_indices"
             let final_array = if matches!(array.data_type(), DataType::Struct(_)) {
@@ -299,28 +294,28 @@ impl ScanExec {
                         .map(|f| f.name().as_str())
                         .collect();
 
-                    // Check if the struct contains the expected fields
-                    let has_expected_fields = field_names.contains(&"original_data")
-                        && field_names.contains(&"selection_indices");
-
                     // Check if the root struct is named "selection_vector" by examining the data type string
-                    let is_selection_vector_struct =
-                        array.data_type().to_string().contains("selection_vector");
+                    let is_selection_vector_struct = array
+                        .data_type()
+                        .to_string()
+                        .contains("comet_selection_vector");
+
+                    // Check if the struct contains the expected fields
+                    let has_expected_fields =
+                        field_names.contains(&"sv_values") && field_names.contains(&"sv_indices");
 
                     if has_expected_fields && is_selection_vector_struct {
                         // Extract the original data and selection indices from the struct
-                        let original_data_column =
-                            struct_array.column_by_name("original_data").unwrap();
-                        let selection_indices_column =
-                            struct_array.column_by_name("selection_indices").unwrap();
+                        let values = struct_array.column_by_name("sv_values").unwrap();
+                        let indices = struct_array.column_by_name("sv_indices").unwrap();
 
                         // Apply the selection using Arrow's take kernel
-                        match take(original_data_column, selection_indices_column, None) {
+                        println!("COMET: ScanExec: has_next(): take selected values");
+                        match take(values, indices, None) {
                             Ok(selected_array) => selected_array,
                             Err(e) => {
                                 return Err(CometError::from(ExecutionError::ArrowError(format!(
-                                    "Failed to apply selection vector for column {}: {}",
-                                    i, e
+                                    "Failed to apply selection vector for column {i}: {e}",
                                 ))));
                             }
                         }
@@ -337,6 +332,10 @@ impl ScanExec {
                 array
             };
 
+            // we copy the array to that we don't have to worry about potential memory
+            // corruption issues later on if underlying buffers are reused or freed
+            // TODO optimize this so that we only do this for Parquet inputs!
+            let final_array = copy_array(&final_array);
             inputs.push(final_array);
             // Drop the Arcs to avoid memory leak
             unsafe {

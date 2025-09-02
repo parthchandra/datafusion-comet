@@ -48,36 +48,26 @@ import org.apache.spark.unsafe.types.UTF8String;
  * [v0, v1, v3, v4, v5, v7] without actually copying the data.
  */
 public class CometSelectionVector extends CometStructVector {
-  /** The original vector being selected from */
-  private final CometVector originalVector;
-
-  /** The selection indices */
-  private final int[] selectionIndices;
-
   /** Number of selected elements */
   private final int numValues;
 
   /**
    * Creates a new selection vector from the given vector and indices.
    *
-   * @param originalVector The original vector to select from
-   * @param selectionIndices The indices to select from the original vector
+   * @param values The original vector to select from
+   * @param indices The indices to select from the original vector
    * @throws IllegalArgumentException if any index is out of bounds
    */
-  public CometSelectionVector(CometVector originalVector, int[] selectionIndices) {
+  public CometSelectionVector(CometVector values, int[] indices) {
     super(
-        createStructVector(originalVector, selectionIndices),
-        originalVector.useDecimal128,
-        originalVector.getDictionaryProvider());
+        createStructVector(values, indices), values.useDecimal128, values.getDictionaryProvider());
 
-    this.originalVector = originalVector;
-    this.selectionIndices = selectionIndices.clone();
-    this.numValues = selectionIndices.length;
+    this.numValues = indices.length;
 
     // Validate indices are within bounds
-    int originalLength = originalVector.numValues();
-    for (int i = 0; i < selectionIndices.length; i++) {
-      int idx = selectionIndices[i];
+    int originalLength = values.numValues();
+    for (int i = 0; i < indices.length; i++) {
+      int idx = indices[i];
       if (idx < 0 || idx >= originalLength) {
         throw new IllegalArgumentException(
             String.format(
@@ -109,13 +99,15 @@ public class CometSelectionVector extends CometStructVector {
     // Create field definitions for the struct
     List<Field> fields =
         Arrays.asList(
-            new Field("original_data", originalValueVector.getField().getFieldType(), null),
-            new Field("selection_indices", indicesVector.getField().getFieldType(), null));
+            new Field("sv_values", originalValueVector.getField().getFieldType(), null),
+            new Field("sv_indices", indicesVector.getField().getFieldType(), null));
 
     // Create struct field
     Field structField =
         new Field(
-            "selection_vector", new FieldType(false, ArrowType.Struct.INSTANCE, null), fields);
+            "comet_selection_vector",
+            new FieldType(false, ArrowType.Struct.INSTANCE, null),
+            fields);
 
     // Create struct vector
     StructVector structVector = new StructVector(structField, allocator, null);
@@ -123,8 +115,8 @@ public class CometSelectionVector extends CometStructVector {
     structVector.setValueCount(selectionIndices.length);
 
     // Transfer data to struct children
-    ValueVector originalDataChild = structVector.getChild("original_data");
-    ValueVector selectionIndicesChild = structVector.getChild("selection_indices");
+    ValueVector originalDataChild = structVector.getChild("sv_values");
+    ValueVector selectionIndicesChild = structVector.getChild("sv_indices");
 
     originalValueVector.makeTransferPair(originalDataChild).transfer();
     indicesVector.makeTransferPair(selectionIndicesChild).transfer();
@@ -149,16 +141,29 @@ public class CometSelectionVector extends CometStructVector {
               "Selection index %d is out of bounds for selection vector of length %d",
               selectionIndex, numValues));
     }
-    return selectionIndices[selectionIndex];
+    // Get the index from the indices vector stored in the struct
+    CometVector indicesVector = getIndicesVector();
+    return indicesVector.getInt(selectionIndex);
   }
 
   /**
-   * Returns a reference to the original vector.
+   * Returns a reference to the values vector from the struct.
    *
-   * @return The original CometVector
+   * @return The CometVector containing the values
    */
-  public CometVector getOriginalVector() {
-    return originalVector;
+  public CometVector getValues() {
+    // Get the values from the struct vector's sv_values child
+    return (CometVector) getChild(0); // sv_values is the first child
+  }
+
+  /**
+   * Returns the indices vector from the struct.
+   *
+   * @return The CometVector containing the indices
+   */
+  private CometVector getIndicesVector() {
+    // Get the indices from the struct vector's sv_indices child
+    return (CometVector) getChild(1); // sv_indices is the second child
   }
 
   /**
@@ -167,7 +172,12 @@ public class CometSelectionVector extends CometStructVector {
    * @return Array of selected indices
    */
   public int[] getSelectedIndices() {
-    return selectionIndices.clone();
+    CometVector indicesVector = getIndicesVector();
+    int[] result = new int[numValues];
+    for (int i = 0; i < numValues; i++) {
+      result[i] = indicesVector.getInt(i);
+    }
+    return result;
   }
 
   /**
@@ -180,6 +190,7 @@ public class CometSelectionVector extends CometStructVector {
    */
   public CometSelectionVector take(int[] indices) {
     int[] newIndices = new int[indices.length];
+    CometVector indicesVector = getIndicesVector();
     for (int i = 0; i < indices.length; i++) {
       int idx = indices[i];
       if (idx < 0 || idx >= numValues) {
@@ -187,9 +198,9 @@ public class CometSelectionVector extends CometStructVector {
             String.format(
                 "Index %d is out of bounds for selection vector of length %d", idx, numValues));
       }
-      newIndices[i] = selectionIndices[idx];
+      newIndices[i] = indicesVector.getInt(idx);
     }
-    return new CometSelectionVector(originalVector, newIndices);
+    return new CometSelectionVector(getValues(), newIndices);
   }
 
   @Override
@@ -201,78 +212,78 @@ public class CometSelectionVector extends CometStructVector {
 
   @Override
   public boolean isNullAt(int rowId) {
-    return originalVector.isNullAt(getOriginalIndex(rowId));
+    return getValues().isNullAt(getOriginalIndex(rowId));
   }
 
   @Override
   public boolean getBoolean(int rowId) {
-    return originalVector.getBoolean(getOriginalIndex(rowId));
+    return getValues().getBoolean(getOriginalIndex(rowId));
   }
 
   @Override
   public byte getByte(int rowId) {
-    return originalVector.getByte(getOriginalIndex(rowId));
+    return getValues().getByte(getOriginalIndex(rowId));
   }
 
   @Override
   public short getShort(int rowId) {
-    return originalVector.getShort(getOriginalIndex(rowId));
+    return getValues().getShort(getOriginalIndex(rowId));
   }
 
   @Override
   public int getInt(int rowId) {
-    return originalVector.getInt(getOriginalIndex(rowId));
+    return getValues().getInt(getOriginalIndex(rowId));
   }
 
   @Override
   public long getLong(int rowId) {
-    return originalVector.getLong(getOriginalIndex(rowId));
+    return getValues().getLong(getOriginalIndex(rowId));
   }
 
   @Override
   public long getLongDecimal(int rowId) {
-    return originalVector.getLongDecimal(getOriginalIndex(rowId));
+    return getValues().getLongDecimal(getOriginalIndex(rowId));
   }
 
   @Override
   public float getFloat(int rowId) {
-    return originalVector.getFloat(getOriginalIndex(rowId));
+    return getValues().getFloat(getOriginalIndex(rowId));
   }
 
   @Override
   public double getDouble(int rowId) {
-    return originalVector.getDouble(getOriginalIndex(rowId));
+    return getValues().getDouble(getOriginalIndex(rowId));
   }
 
   @Override
   public UTF8String getUTF8String(int rowId) {
-    return originalVector.getUTF8String(getOriginalIndex(rowId));
+    return getValues().getUTF8String(getOriginalIndex(rowId));
   }
 
   @Override
   public byte[] getBinary(int rowId) {
-    return originalVector.getBinary(getOriginalIndex(rowId));
+    return getValues().getBinary(getOriginalIndex(rowId));
   }
 
   @Override
   public ColumnarArray getArray(int rowId) {
-    return originalVector.getArray(getOriginalIndex(rowId));
+    return getValues().getArray(getOriginalIndex(rowId));
   }
 
   @Override
   public ColumnarMap getMap(int rowId) {
-    return originalVector.getMap(getOriginalIndex(rowId));
+    return getValues().getMap(getOriginalIndex(rowId));
   }
 
   @Override
   public ColumnVector getChild(int ordinal) {
     // Return the child from the original vector with selection applied
-    return originalVector.getChild(ordinal);
+    return getValues().getChild(ordinal);
   }
 
   @Override
   public DictionaryProvider getDictionaryProvider() {
-    return originalVector.getDictionaryProvider();
+    return getValues().getDictionaryProvider();
   }
 
   @Override
@@ -280,9 +291,11 @@ public class CometSelectionVector extends CometStructVector {
     if (offset < 0 || length < 0 || offset + length > numValues) {
       throw new IllegalArgumentException("Invalid slice parameters");
     }
+    // Get the current indices and slice them
+    int[] currentIndices = getSelectedIndices();
     int[] slicedIndices = new int[length];
-    System.arraycopy(selectionIndices, offset, slicedIndices, 0, length);
-    return new CometSelectionVector(originalVector, slicedIndices);
+    System.arraycopy(currentIndices, offset, slicedIndices, 0, length);
+    return new CometSelectionVector(getValues(), slicedIndices);
   }
 
   @Override

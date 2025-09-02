@@ -96,29 +96,6 @@ class NativeUtil {
 
     (0 until batch.numCols()).foreach { index =>
       batch.column(index) match {
-        case selectionVectorV2: CometSelectionVector =>
-          // Handle CometSelectionVector - it's a struct vector that gets exported normally
-          val valueVector = selectionVectorV2.getValueVector
-
-          numRows += selectionVectorV2.numValues()
-
-          val provider = if (valueVector.getField.getDictionary != null) {
-            selectionVectorV2.getDictionaryProvider
-          } else {
-            null
-          }
-
-          // The array and schema structures are allocated by native side.
-          // Export the struct vector containing original_data and selection_indices
-          val arrowSchema = ArrowSchema.wrap(schemaAddrs(index))
-          val arrowArray = ArrowArray.wrap(arrayAddrs(index))
-          Data.exportVector(
-            allocator,
-            getFieldVector(valueVector, "export"),
-            provider,
-            arrowArray,
-            arrowSchema)
-
         case a: CometVector =>
           val valueVector = a.getValueVector
 
