@@ -18,6 +18,7 @@
 use crate::common::bit;
 use crate::execution::operators::ExecutionError;
 use arrow::buffer::Buffer as ArrowBuffer;
+use log::debug;
 use std::{
     alloc::{handle_alloc_error, Layout},
     ptr::NonNull,
@@ -130,6 +131,7 @@ impl CometBuffer {
     /// be updated once upstream operators fully consumed the previous output batch. For breaking
     /// operators, they are responsible for copying content out of the buffers.
     pub unsafe fn to_arrow(&self) -> Result<ArrowBuffer, ExecutionError> {
+        debug!("called CometBuffer.to_arrrow for {:?}", self.data.as_ptr());
         let ptr = NonNull::new_unchecked(self.data.as_ptr());
         self.check_reference()?;
         Ok(ArrowBuffer::from_custom_allocation(
@@ -145,9 +147,10 @@ impl CometBuffer {
     /// modify the buffer.
     pub fn check_reference(&self) -> Result<(), ExecutionError> {
         if Arc::strong_count(&self.allocation) > 1 {
-            Err(ExecutionError::GeneralError(
-                "Error on modifying a buffer which is not exclusively owned by Comet".to_string(),
-            ))
+            // Err(ExecutionError::GeneralError(
+            //     "Error on modifying a buffer which is not exclusively owned by Comet".to_string(),
+            // ))
+            panic!("crash")
         } else {
             Ok(())
         }
@@ -200,6 +203,7 @@ impl CometBuffer {
 impl Drop for CometBuffer {
     fn drop(&mut self) {
         if self.owned {
+            debug!("called CometBuffer.drop for {:?}", self.data.as_ptr());
             unsafe {
                 std::alloc::dealloc(
                     self.data.as_ptr(),

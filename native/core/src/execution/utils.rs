@@ -18,11 +18,14 @@
 /// Utils for array vector, etc.
 use crate::errors::ExpressionError;
 use crate::execution::operators::ExecutionError;
+use arrow::array::ArrayRef;
 use arrow::{
     array::ArrayData,
     error::ArrowError,
     ffi::{from_ffi, FFI_ArrowArray, FFI_ArrowSchema},
 };
+use log::debug;
+use std::sync::Arc;
 
 impl From<ArrowError> for ExecutionError {
     fn from(error: ArrowError) -> ExecutionError {
@@ -56,6 +59,7 @@ pub trait SparkArrowConvert {
 impl SparkArrowConvert for ArrayData {
     fn from_spark(addresses: (i64, i64)) -> Result<Self, ExecutionError> {
         let (array_ptr, schema_ptr) = addresses;
+        debug!("Moving array at address {} FROM spark", array_ptr);
 
         let array_ptr = array_ptr as *mut FFI_ArrowArray;
         let schema_ptr = schema_ptr as *mut FFI_ArrowSchema;
@@ -85,6 +89,8 @@ impl SparkArrowConvert for ArrayData {
     fn move_to_spark(&self, array: i64, schema: i64) -> Result<(), ExecutionError> {
         let array_ptr = array as *mut FFI_ArrowArray;
         let schema_ptr = schema as *mut FFI_ArrowSchema;
+
+        debug!("Moving array at address {} TO spark", array_ptr as i64);
 
         let array_align = std::mem::align_of::<FFI_ArrowArray>();
         let schema_align = std::mem::align_of::<FFI_ArrowSchema>();
@@ -126,4 +132,24 @@ pub fn bytes_to_i128(slice: &[u8]) -> i128 {
     }
 
     i128::from_le_bytes(bytes)
+}
+
+pub fn analyze_array_references(array: &ArrayRef, name: &str) {
+    debug!("=== Reference Analysis for {} ===", name);
+    debug!("Array Arc reference count: {}", Arc::strong_count(array));
+
+    let data = array.to_data();
+    debug!("ArrayData length: {}", data.len());
+    debug!("ArrayData null count: {}", data.null_count());
+
+    debug!("Number of buffers: {}", data.buffers().len());
+    for (i, _buffer) in data.buffers().iter().enumerate() {
+        debug!("Buffer[{}] exists", i);
+    }
+
+    if data.nulls().is_some() {
+        debug!("Null buffer exists");
+    }
+
+    debug!("Number of child arrays: {}", data.child_data().len());
 }

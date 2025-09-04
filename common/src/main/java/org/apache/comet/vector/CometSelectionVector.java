@@ -40,8 +40,8 @@ import org.apache.spark.unsafe.types.UTF8String;
  * underlying Arrow StructVector containing both the original data vector and selection indices,
  * providing efficient access to selected elements without copying the underlying data.
  *
- * <p>The struct contains two fields: - "original_data": The original CometVector data -
- * "selection_indices": An IntVector containing the selection indices
+ * <p>The struct contains two fields: - "sv_values": The original CometVector data - "sv_indices":
+ * An IntVector containing the selection indices
  *
  * <p>For example, if the original vector has values [v0, v1, v2, v3, v4, v5, v6, v7] and the
  * selection indices are [0, 1, 3, 4, 5, 7], then this selection vector will logically represent
@@ -50,6 +50,8 @@ import org.apache.spark.unsafe.types.UTF8String;
 public class CometSelectionVector extends CometStructVector {
   /** Number of selected elements */
   private final int numValues;
+
+  private final CometVector origValues;
 
   /**
    * Creates a new selection vector from the given vector and indices.
@@ -61,7 +63,7 @@ public class CometSelectionVector extends CometStructVector {
   public CometSelectionVector(CometVector values, int[] indices) {
     super(
         createStructVector(values, indices), values.useDecimal128, values.getDictionaryProvider());
-
+    this.origValues = values;
     this.numValues = indices.length;
 
     // Validate indices are within bounds
@@ -96,7 +98,7 @@ public class CometSelectionVector extends CometStructVector {
     }
     indicesVector.setValueCount(selectionIndices.length);
 
-    // Create field definitions for the struct
+    // Create a  definition for the struct
     List<Field> fields =
         Arrays.asList(
             new Field("sv_values", originalValueVector.getField().getFieldType(), null),
@@ -303,5 +305,6 @@ public class CometSelectionVector extends CometStructVector {
     // Close the underlying struct vector
     super.close();
     // Note: We don't close the original vector as it may be owned by someone else
+    origValues.close();
   }
 }

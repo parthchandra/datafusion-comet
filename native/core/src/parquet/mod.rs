@@ -66,6 +66,7 @@ use jni::objects::{
     JBooleanArray, JByteArray, JLongArray, JMap, JObject, JPrimitiveArray, JString, ReleaseMode,
 };
 use jni::sys::{jstring, JNI_FALSE};
+use log::debug;
 use object_store::path::Path;
 use read::ColumnReader;
 use util::jni::{convert_column_descriptor, convert_encoding, deserialize_schema};
@@ -133,7 +134,9 @@ pub extern "system" fn Java_org_apache_comet_parquet_Native_initColumnReader(
             last_data_page: None,
         };
         let res = Box::new(ctx);
-        Ok(Box::into_raw(res) as i64)
+        let ret = Box::into_raw(res) as i64;
+        debug!("Created a new ColumnReader: {}", ret);
+        Ok(ret)
     })
 }
 
@@ -513,6 +516,7 @@ pub extern "system" fn Java_org_apache_comet_parquet_Native_resetBatch(
     _jclass: JClass,
     handle: jlong,
 ) {
+    debug!("reset batch {}", handle);
     try_unwrap_or_throw(&env, |_| {
         let reader = get_reader(handle)?;
         reader.reset_batch();
@@ -528,6 +532,7 @@ pub extern "system" fn Java_org_apache_comet_parquet_Native_readBatch(
     batch_size: jint,
     null_pad_size: jint,
 ) -> jintArray {
+    debug!("reading batch for {}", handle);
     try_unwrap_or_throw(&e, |env| {
         let reader = get_reader(handle)?;
         let (num_values, num_nulls) =
@@ -565,6 +570,7 @@ pub extern "system" fn Java_org_apache_comet_parquet_Native_currentBatch(
         let ctx = get_context(handle)?;
         let reader = &mut ctx.column_reader;
         let data = reader.current_batch()?;
+        debug!("Moving {array_addr} to spark for batch {}", handle);
         data.move_to_spark(array_addr, schema_addr)
             .map_err(|e| e.into())
     })
@@ -590,6 +596,7 @@ pub extern "system" fn Java_org_apache_comet_parquet_Native_closeColumnReader(
     _jclass: JClass,
     handle: jlong,
 ) {
+    debug!("Closing column reader {}", handle);
     try_unwrap_or_throw(&env, |_| {
         unsafe {
             let ctx = get_context(handle)?;

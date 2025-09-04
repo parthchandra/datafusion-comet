@@ -16,6 +16,7 @@
 // under the License.
 
 use crate::execution::operators::copy_array;
+use crate::execution::utils::analyze_array_references;
 use crate::{
     errors::CometError,
     execution::{
@@ -23,8 +24,10 @@ use crate::{
     },
     jvm_bridge::{jni_call, JVMClasses},
 };
-use arrow::array::{make_array, ArrayData, ArrayRef, RecordBatch, RecordBatchOptions, StructArray};
-use arrow::compute::{cast_with_options, take, CastOptions};
+use arrow::array::{
+    make_array, ArrayData, ArrayRef, MutableArrayData, RecordBatch, RecordBatchOptions, StructArray,
+};
+use arrow::compute::{cast_with_options, CastOptions};
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use arrow::ffi::FFI_ArrowArray;
 use arrow::ffi::FFI_ArrowSchema;
@@ -43,6 +46,8 @@ use itertools::Itertools;
 use jni::objects::JValueGen;
 use jni::objects::{GlobalRef, JObject};
 use jni::sys::jsize;
+use log::debug;
+use std::ops::Deref;
 use std::rc::Rc;
 use std::{
     any::Any,
@@ -290,7 +295,7 @@ impl ScanExec {
 
             // Check if this is a selection vector struct (from CometSelectionVector)
             // The struct should be named "selection_vector" and have two fields: "original_data" and "selection_indices"
-            let final_array = if matches!(array.data_type(), DataType::Struct(_)) {
+            let array = if matches!(array.data_type(), DataType::Struct(_)) {
                 let struct_array = array.as_any().downcast_ref::<StructArray>().unwrap();
 
                 // Check if this is a selection vector struct with the expected fields and name
@@ -301,24 +306,29 @@ impl ScanExec {
                         .map(|f| f.name().as_str())
                         .collect();
 
-                    // Check if the root struct is named "selection_vector" by examining the data type string
-                    let is_selection_vector_struct = array
-                        .data_type()
-                        .to_string()
-                        .contains("comet_selection_vector");
+                    // // Check if the root struct is named "selection_vector" by examining the data type string
+                    // let is_selection_vector_struct = array
+                    //     .data_type()
+                    //     .to_string()
+                    //     .contains("comet_selection_vector");
 
                     // Check if the struct contains the expected fields
                     let has_expected_fields =
                         field_names.contains(&"sv_values") && field_names.contains(&"sv_indices");
 
-                    if has_expected_fields && is_selection_vector_struct {
+                    if has_expected_fields
+                    /*&& is_selection_vector_struct*/
+                    {
                         // Extract the original data and selection indices from the struct
                         let values = struct_array.column_by_name("sv_values").unwrap();
                         let indices = struct_array.column_by_name("sv_indices").unwrap();
+                        analyze_array_references(values, "values");
+                        analyze_array_references(indices, "indices");
 
-                        // Apply the selection using Arrow's take kernel
-                        println!("COMET: ScanExec: has_next(): take selected values");
-                        match take(values, indices, None) {
+                        // Apply the selection using a copying take to ensure buffer safety
+                        debug!("COMET: ScanExec: has_next(): take selected values with copy");
+                        // Arc::clone(values)
+                        match copy_take(values, indices) {
                             Ok(selected_array) => selected_array,
                             Err(e) => {
                                 return Err(CometError::from(ExecutionError::ArrowError(format!(
@@ -339,17 +349,16 @@ impl ScanExec {
                 array
             };
 
-let array = if arrow_ffi_safe {
-    // ownership of this array has been transferred to native
-    array
-} else {
-    // it is necessary to copy the array because the contents may be
-    // overwritten on the JVM side in the future
-    copy_array(&array)
-};
+            let array = if arrow_ffi_safe {
+                // ownership of this array has been transferred to native
+                array
+            } else {
+                // it is necessary to copy the array because the contents may be
+                // overwritten on the JVM side in the future
+                copy_array(&array)
+            };
 
-inputs.push(array);
-
+            inputs.push(array);
 
             // Drop the Arcs to avoid memory leak
             unsafe {
@@ -362,6 +371,44 @@ inputs.push(array);
 
         Ok(InputBatch::new(inputs, Some(num_rows as usize)))
     }
+}
+
+/// A copying version of Arrow's take kernel that ensures new buffers are created.
+/// This prevents reference sharing issues with JVM-managed memory.
+fn copy_take(
+    values: &dyn arrow::array::Array,
+    indices: &dyn arrow::array::Array,
+) -> Result<ArrayRef, arrow::error::ArrowError> {
+    use arrow::array::{Array, Int32Array};
+
+    // First convert indices to Int32Array if needed
+    let indices = indices
+        .as_any()
+        .downcast_ref::<Int32Array>()
+        .ok_or_else(|| {
+            arrow::error::ArrowError::ComputeError(
+                "Selection indices must be Int32Array".to_string(),
+            )
+        })?;
+
+    let values_data = values.to_data();
+    let selection_count = indices.len();
+
+    // Create a new MutableArrayData for the selection
+    let mut mutable = MutableArrayData::new(vec![&values_data], false, selection_count);
+
+    // Apply the selection by extending with individual indices
+    for i in 0..selection_count {
+        if indices.is_valid(i) {
+            let idx = indices.value(i) as usize;
+            mutable.extend(0, idx, idx + 1);
+        } else {
+            // Handle null indices by extending with a null slot
+            mutable.extend_nulls(1);
+        }
+    }
+
+    Ok(make_array(mutable.freeze()))
 }
 
 fn scan_schema(input_batch: &InputBatch, data_types: &[DataType]) -> SchemaRef {
