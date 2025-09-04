@@ -23,6 +23,7 @@ import scala.collection.Iterator;
 
 import org.apache.spark.sql.vectorized.ColumnarBatch;
 
+import org.apache.comet.vector.CometSelectionVector;
 import org.apache.comet.vector.NativeUtil;
 
 /**
@@ -89,5 +90,59 @@ public class CometBatchIterator {
     currentBatch = null;
 
     return numRows;
+  }
+
+  /**
+   * Check if the current batch has selection vectors at specified column indices.
+   *
+   * @param columnIndices The column indices to check for selection vectors
+   * @return Array of booleans indicating which columns have selection vectors
+   */
+  public boolean[] hasSelectionVectors(int[] columnIndices) {
+    if (currentBatch == null) {
+      return new boolean[columnIndices.length];
+    }
+
+    boolean[] result = new boolean[columnIndices.length];
+    for (int i = 0; i < columnIndices.length; i++) {
+      int columnIndex = columnIndices[i];
+      if (columnIndex >= 0 && columnIndex < currentBatch.numCols()) {
+        result[i] = currentBatch.column(columnIndex) instanceof CometSelectionVector;
+      } else {
+        result[i] = false;
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Export selection indices for columns that have selection vectors.
+   *
+   * @param columnIndices The column indices to export selection indices for
+   * @param arrayAddrs The addresses of the ArrowArray structures for indices
+   * @param schemaAddrs The addresses of the ArrowSchema structures for indices
+   * @return Number of selection indices arrays exported
+   */
+  public int exportSelectionIndices(int[] columnIndices, long[] arrayAddrs, long[] schemaAddrs) {
+    if (currentBatch == null) {
+      return 0;
+    }
+
+    int exportCount = 0;
+    for (int i = 0; i < columnIndices.length; i++) {
+      int columnIndex = columnIndices[i];
+      if (columnIndex >= 0 && columnIndex < currentBatch.numCols()) {
+        if (currentBatch.column(columnIndex) instanceof CometSelectionVector) {
+          CometSelectionVector selectionVector =
+              (CometSelectionVector) currentBatch.column(columnIndex);
+
+          // Export the indices vector
+          nativeUtil.exportSingleVector(
+              selectionVector.getIndices(), arrayAddrs[exportCount], schemaAddrs[exportCount]);
+          exportCount++;
+        }
+      }
+    }
+    return exportCount;
   }
 }

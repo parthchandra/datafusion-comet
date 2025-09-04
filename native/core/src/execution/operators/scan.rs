@@ -16,7 +16,6 @@
 // under the License.
 
 use crate::execution::operators::copy_array;
-use crate::execution::utils::analyze_array_references;
 use crate::{
     errors::CometError,
     execution::{
@@ -25,7 +24,7 @@ use crate::{
     jvm_bridge::{jni_call, JVMClasses},
 };
 use arrow::array::{
-    make_array, ArrayData, ArrayRef, MutableArrayData, RecordBatch, RecordBatchOptions, StructArray,
+    make_array, ArrayData, ArrayRef, MutableArrayData, RecordBatch, RecordBatchOptions,
 };
 use arrow::compute::{cast_with_options, CastOptions};
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
@@ -44,10 +43,9 @@ use datafusion::{
 use futures::Stream;
 use itertools::Itertools;
 use jni::objects::JValueGen;
-use jni::objects::{GlobalRef, JObject};
+use jni::objects::{GlobalRef, JBooleanArray, JObject};
 use jni::sys::jsize;
 use log::debug;
-use std::ops::Deref;
 use std::rc::Rc;
 use std::{
     any::Any,
@@ -283,6 +281,82 @@ impl ScanExec {
 
         let mut inputs: Vec<ArrayRef> = Vec::with_capacity(num_cols);
 
+        // Check if any columns have selection vectors by calling back to JVM
+        let column_indices: Vec<i32> = (0..num_cols as i32).collect();
+        let column_indices_array = env.new_int_array(num_cols as jsize)?;
+        env.set_int_array_region(&column_indices_array, 0, &column_indices)?;
+
+        // Create JValueGen for reuse
+        let column_indices_jobject = JObject::from(column_indices_array);
+        let column_indices_jvalue = JValueGen::Object(column_indices_jobject.as_ref());
+
+        let has_selection_vectors: JObject = unsafe {
+            jni_call!(&mut env,
+                comet_batch_iterator(iter).has_selection_vectors(column_indices_jvalue) -> JObject)?
+        };
+
+        // Get the boolean array indicating which columns have selection vectors
+        let boolean_array = JBooleanArray::from(has_selection_vectors);
+        let selection_flags = unsafe {
+            env.get_array_elements(&boolean_array, jni::objects::ReleaseMode::NoCopyBack)?
+        };
+        let selection_flags_slice: &[jni::sys::jboolean] = &selection_flags;
+
+        // Count selection vectors for array allocation
+        let selection_count = selection_flags_slice
+            .iter()
+            .filter(|&&flag| flag != 0)
+            .count();
+
+        let selection_indices_arrays = if selection_count > 0 {
+            // Allocate arrays for selection indices export
+            let mut indices_array_addrs = Vec::with_capacity(selection_count);
+            let mut indices_schema_addrs = Vec::with_capacity(selection_count);
+
+            for _ in 0..selection_count {
+                let arrow_array = Rc::new(FFI_ArrowArray::empty());
+                let arrow_schema = Rc::new(FFI_ArrowSchema::empty());
+                indices_array_addrs.push(Rc::into_raw(arrow_array) as i64);
+                indices_schema_addrs.push(Rc::into_raw(arrow_schema) as i64);
+            }
+
+            // Prepare JNI arrays for the export call
+            let indices_array_obj = env.new_long_array(selection_count as jsize)?;
+            let indices_schema_obj = env.new_long_array(selection_count as jsize)?;
+            env.set_long_array_region(&indices_array_obj, 0, &indices_array_addrs)?;
+            env.set_long_array_region(&indices_schema_obj, 0, &indices_schema_addrs)?;
+
+            // Export selection indices from JVM
+            let _exported_count: i32 = unsafe {
+                jni_call!(&mut env,
+                    comet_batch_iterator(iter).export_selection_indices(
+                        column_indices_jvalue,
+                        JValueGen::Object(JObject::from(indices_array_obj).as_ref()),
+                        JValueGen::Object(JObject::from(indices_schema_obj).as_ref())
+                    ) -> i32)?
+            };
+
+            // Convert to ArrayRef for easier handling
+            let mut selection_arrays = Vec::with_capacity(selection_count);
+            for i in 0..selection_count {
+                let array_data =
+                    ArrayData::from_spark((indices_array_addrs[i], indices_schema_addrs[i]))?;
+                selection_arrays.push(make_array(array_data));
+
+                // Clean up the temporary FFI structures
+                unsafe {
+                    Rc::from_raw(indices_array_addrs[i] as *const FFI_ArrowArray);
+                    Rc::from_raw(indices_schema_addrs[i] as *const FFI_ArrowSchema);
+                }
+            }
+
+            Some(selection_arrays)
+        } else {
+            None
+        };
+
+        // Process each column
+        let mut selection_index = 0;
         for i in 0..num_cols {
             let array_ptr = array_addrs[i];
             let schema_ptr = schema_addrs[i];
@@ -293,59 +367,33 @@ impl ScanExec {
 
             let array = make_array(array_data);
 
-            // Check if this is a selection vector struct (from CometSelectionVector)
-            // The struct should be named "selection_vector" and have two fields: "original_data" and "selection_indices"
-            let array = if matches!(array.data_type(), DataType::Struct(_)) {
-                let struct_array = array.as_any().downcast_ref::<StructArray>().unwrap();
+            // Apply selection if this column has a selection vector
+            let array = if selection_flags_slice[i] != 0 {
+                if let Some(ref selection_arrays) = selection_indices_arrays {
+                    let indices = &selection_arrays[selection_index];
+                    selection_index += 1;
 
-                // Check if this is a selection vector struct with the expected fields and name
-                if struct_array.num_columns() == 2 {
-                    let field_names: Vec<&str> = struct_array
-                        .fields()
-                        .iter()
-                        .map(|f| f.name().as_str())
-                        .collect();
+                    // Apply the selection using a copying take to ensure buffer safety
+                    debug!(
+                        "COMET: ScanExec: has_next(): take selected values with copy for column {}",
+                        i
+                    );
 
-                    // // Check if the root struct is named "selection_vector" by examining the data type string
-                    // let is_selection_vector_struct = array
-                    //     .data_type()
-                    //     .to_string()
-                    //     .contains("comet_selection_vector");
-
-                    // Check if the struct contains the expected fields
-                    let has_expected_fields =
-                        field_names.contains(&"sv_values") && field_names.contains(&"sv_indices");
-
-                    if has_expected_fields
-                    /*&& is_selection_vector_struct*/
-                    {
-                        // Extract the original data and selection indices from the struct
-                        let values = struct_array.column_by_name("sv_values").unwrap();
-                        let indices = struct_array.column_by_name("sv_indices").unwrap();
-                        analyze_array_references(values, "values");
-                        analyze_array_references(indices, "indices");
-
-                        // Apply the selection using a copying take to ensure buffer safety
-                        debug!("COMET: ScanExec: has_next(): take selected values with copy");
-                        // Arc::clone(values)
-                        match copy_take(values, indices) {
-                            Ok(selected_array) => selected_array,
-                            Err(e) => {
-                                return Err(CometError::from(ExecutionError::ArrowError(format!(
-                                    "Failed to apply selection vector for column {i}: {e}",
-                                ))));
-                            }
+                    match copy_take(&*array, &**indices) {
+                        Ok(selected_array) => {
+                            debug!("SELECTION:\n\tarray: {:?}\n\tselection_indices{:?}\n\tselected_array: {:?}", array, indices, selected_array);
+                            selected_array
                         }
-                    } else {
-                        // Regular struct array or struct without expected name/fields
-                        array
+                        Err(e) => {
+                            return Err(CometError::from(ExecutionError::ArrowError(format!(
+                                "Failed to apply selection vector for column {i}: {e}",
+                            ))));
+                        }
                     }
                 } else {
-                    // Regular struct array with different column count
                     array
                 }
             } else {
-                // Regular non-struct array, use as-is
                 array
             };
 
