@@ -131,7 +131,6 @@ impl CometBuffer {
     /// be updated once upstream operators fully consumed the previous output batch. For breaking
     /// operators, they are responsible for copying content out of the buffers.
     pub unsafe fn to_arrow(&self) -> Result<ArrowBuffer, ExecutionError> {
-        debug!("called CometBuffer.to_arrrow for {:?}", self.data.as_ptr());
         let ptr = NonNull::new_unchecked(self.data.as_ptr());
         self.check_reference()?;
         Ok(ArrowBuffer::from_custom_allocation(
@@ -203,7 +202,6 @@ impl CometBuffer {
 impl Drop for CometBuffer {
     fn drop(&mut self) {
         if self.owned {
-            debug!("called CometBuffer.drop for {:?}", self.data.as_ptr());
             unsafe {
                 std::alloc::dealloc(
                     self.data.as_ptr(),
