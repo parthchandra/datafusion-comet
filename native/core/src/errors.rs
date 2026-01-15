@@ -223,9 +223,9 @@ impl jni::errors::ToException for CometError {
                 class: "java/lang/NullPointerException".to_string(),
                 msg: self.to_string(),
             },
-            CometError::Spark { .. } => Exception {
-                class: "org/apache/spark/SparkException".to_string(),
-                msg: self.to_string(),
+            CometError::Spark(spark_err) => Exception {
+                class: spark_err.exception_class().to_string(),
+                msg: spark_err.to_string(),
             },
             CometError::NumberIntFormat { source: s } => Exception {
                 class: "java/lang/NumberFormatException".to_string(),
