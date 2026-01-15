@@ -17,6 +17,7 @@
 
 use arrow::error::ArrowError;
 use datafusion::common::DataFusionError;
+use std::sync::Arc;
 
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum SparkError {
@@ -209,7 +210,7 @@ pub enum SparkError {
     // ==================== Generic Errors ====================
 
     #[error("ArrowError: {0}.")]
-    Arrow(#[source] ArrowError),
+    Arrow(Arc<ArrowError>),
 
     #[error("InternalError: {0}.")]
     Internal(String),
@@ -227,6 +228,207 @@ pub struct SparkExceptionInfo {
 }
 
 impl SparkError {
+    /// Serialize this error to JSON format for JNI transfer
+    pub fn to_json(&self) -> String {
+        let error_class = self.error_class().unwrap_or("");
+
+        // Create a JSON structure with errorType, errorClass, and params
+        match serde_json::to_string(&serde_json::json!({
+            "errorType": self.error_type_name(),
+            "errorClass": error_class,
+            "params": self.params_as_json(),
+        })) {
+            Ok(json) => json,
+            Err(e) => {
+                // Fallback if serialization fails
+                format!("{{\"errorType\":\"SerializationError\",\"message\":\"{}\"}}", e)
+            }
+        }
+    }
+
+    /// Get the error type name for JSON serialization
+    fn error_type_name(&self) -> &'static str {
+        match self {
+            SparkError::CastInvalidValue { .. } => "CastInvalidValue",
+            SparkError::NumericValueOutOfRange { .. } => "NumericValueOutOfRange",
+            SparkError::CastOverFlow { .. } => "CastOverFlow",
+            SparkError::CannotParseDecimal => "CannotParseDecimal",
+            SparkError::ArithmeticOverflow { .. } => "ArithmeticOverflow",
+            SparkError::DivideByZero => "DivideByZero",
+            SparkError::RemainderByZero => "RemainderByZero",
+            SparkError::IntervalDividedByZero => "IntervalDividedByZero",
+            SparkError::BinaryArithmeticOverflow { .. } => "BinaryArithmeticOverflow",
+            SparkError::IntervalArithmeticOverflowWithSuggestion { .. } => "IntervalArithmeticOverflowWithSuggestion",
+            SparkError::IntervalArithmeticOverflowWithoutSuggestion => "IntervalArithmeticOverflowWithoutSuggestion",
+            SparkError::DatetimeOverflow => "DatetimeOverflow",
+            SparkError::InvalidArrayIndex { .. } => "InvalidArrayIndex",
+            SparkError::InvalidElementAtIndex { .. } => "InvalidElementAtIndex",
+            SparkError::InvalidBitmapPosition { .. } => "InvalidBitmapPosition",
+            SparkError::InvalidIndexOfZero => "InvalidIndexOfZero",
+            SparkError::DuplicatedMapKey { .. } => "DuplicatedMapKey",
+            SparkError::NullMapKey => "NullMapKey",
+            SparkError::MapKeyValueDiffSizes => "MapKeyValueDiffSizes",
+            SparkError::ExceedMapSizeLimit { .. } => "ExceedMapSizeLimit",
+            SparkError::CollectionSizeLimitExceeded { .. } => "CollectionSizeLimitExceeded",
+            SparkError::NotNullAssertViolation { .. } => "NotNullAssertViolation",
+            SparkError::ValueIsNull { .. } => "ValueIsNull",
+            SparkError::CannotParseTimestamp { .. } => "CannotParseTimestamp",
+            SparkError::InvalidFractionOfSecond { .. } => "InvalidFractionOfSecond",
+            SparkError::InvalidUtf8String { .. } => "InvalidUtf8String",
+            SparkError::UnexpectedPositiveValue { .. } => "UnexpectedPositiveValue",
+            SparkError::UnexpectedNegativeValue { .. } => "UnexpectedNegativeValue",
+            SparkError::InvalidRegexGroupIndex { .. } => "InvalidRegexGroupIndex",
+            SparkError::DatatypeCannotOrder { .. } => "DatatypeCannotOrder",
+            SparkError::ScalarSubqueryTooManyRows => "ScalarSubqueryTooManyRows",
+            SparkError::Arrow(_) => "Arrow",
+            SparkError::Internal(_) => "Internal",
+        }
+    }
+
+    /// Extract parameters as JSON value
+    fn params_as_json(&self) -> serde_json::Value {
+        match self {
+            SparkError::CastInvalidValue { value, from_type, to_type } => {
+                serde_json::json!({
+                    "value": value,
+                    "fromType": from_type,
+                    "toType": to_type,
+                })
+            }
+            SparkError::NumericValueOutOfRange { value, precision, scale } => {
+                serde_json::json!({
+                    "value": value,
+                    "precision": precision,
+                    "scale": scale,
+                })
+            }
+            SparkError::CastOverFlow { value, from_type, to_type } => {
+                serde_json::json!({
+                    "value": value,
+                    "fromType": from_type,
+                    "toType": to_type,
+                })
+            }
+            SparkError::ArithmeticOverflow { from_type } => {
+                serde_json::json!({
+                    "fromType": from_type,
+                })
+            }
+            SparkError::BinaryArithmeticOverflow { value1, symbol, value2, function_name } => {
+                serde_json::json!({
+                    "value1": value1,
+                    "symbol": symbol,
+                    "value2": value2,
+                    "functionName": function_name,
+                })
+            }
+            SparkError::IntervalArithmeticOverflowWithSuggestion { function_name } => {
+                serde_json::json!({
+                    "functionName": function_name,
+                })
+            }
+            SparkError::InvalidArrayIndex { index_value, array_size } => {
+                serde_json::json!({
+                    "indexValue": index_value,
+                    "arraySize": array_size,
+                })
+            }
+            SparkError::InvalidElementAtIndex { index_value, array_size } => {
+                serde_json::json!({
+                    "indexValue": index_value,
+                    "arraySize": array_size,
+                })
+            }
+            SparkError::InvalidBitmapPosition { bit_position, bitmap_num_bytes, bitmap_num_bits } => {
+                serde_json::json!({
+                    "bitPosition": bit_position,
+                    "bitmapNumBytes": bitmap_num_bytes,
+                    "bitmapNumBits": bitmap_num_bits,
+                })
+            }
+            SparkError::DuplicatedMapKey { key } => {
+                serde_json::json!({
+                    "key": key,
+                })
+            }
+            SparkError::ExceedMapSizeLimit { size, max_size } => {
+                serde_json::json!({
+                    "size": size,
+                    "maxSize": max_size,
+                })
+            }
+            SparkError::CollectionSizeLimitExceeded { num_elements, max_elements } => {
+                serde_json::json!({
+                    "numElements": num_elements,
+                    "maxElements": max_elements,
+                })
+            }
+            SparkError::NotNullAssertViolation { field_name } => {
+                serde_json::json!({
+                    "fieldName": field_name,
+                })
+            }
+            SparkError::ValueIsNull { field_name, row_index } => {
+                serde_json::json!({
+                    "fieldName": field_name,
+                    "rowIndex": row_index,
+                })
+            }
+            SparkError::CannotParseTimestamp { message, suggested_func } => {
+                serde_json::json!({
+                    "message": message,
+                    "suggestedFunc": suggested_func,
+                })
+            }
+            SparkError::InvalidFractionOfSecond { value } => {
+                serde_json::json!({
+                    "value": value,
+                })
+            }
+            SparkError::InvalidUtf8String { hex_string } => {
+                serde_json::json!({
+                    "hexString": hex_string,
+                })
+            }
+            SparkError::UnexpectedPositiveValue { parameter_name, actual_value } => {
+                serde_json::json!({
+                    "parameterName": parameter_name,
+                    "actualValue": actual_value,
+                })
+            }
+            SparkError::UnexpectedNegativeValue { parameter_name, actual_value } => {
+                serde_json::json!({
+                    "parameterName": parameter_name,
+                    "actualValue": actual_value,
+                })
+            }
+            SparkError::InvalidRegexGroupIndex { function_name, group_count, group_index } => {
+                serde_json::json!({
+                    "functionName": function_name,
+                    "groupCount": group_count,
+                    "groupIndex": group_index,
+                })
+            }
+            SparkError::DatatypeCannotOrder { data_type } => {
+                serde_json::json!({
+                    "dataType": data_type,
+                })
+            }
+            SparkError::Arrow(e) => {
+                serde_json::json!({
+                    "message": e.to_string(),
+                })
+            }
+            SparkError::Internal(msg) => {
+                serde_json::json!({
+                    "message": msg,
+                })
+            }
+            // Simple errors with no parameters
+            _ => serde_json::json!({}),
+        }
+    }
+
     /// Returns the appropriate Spark exception class for this error
     pub fn exception_class(&self) -> &'static str {
         match self {
@@ -350,12 +552,163 @@ pub type SparkResult<T> = Result<T, SparkError>;
 
 impl From<ArrowError> for SparkError {
     fn from(value: ArrowError) -> Self {
-        SparkError::Arrow(value)
+        SparkError::Arrow(Arc::new(value))
     }
 }
 
 impl From<SparkError> for DataFusionError {
     fn from(value: SparkError) -> Self {
         DataFusionError::External(Box::new(value))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_divide_by_zero_json() {
+        let error = SparkError::DivideByZero;
+        let json = error.to_json();
+
+        assert!(json.contains("\"errorType\":\"DivideByZero\""));
+        assert!(json.contains("\"errorClass\":\"DIVIDE_BY_ZERO\""));
+
+        // Verify it's valid JSON
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["errorType"], "DivideByZero");
+        assert_eq!(parsed["errorClass"], "DIVIDE_BY_ZERO");
+    }
+
+    #[test]
+    fn test_remainder_by_zero_json() {
+        let error = SparkError::RemainderByZero;
+        let json = error.to_json();
+
+        assert!(json.contains("\"errorType\":\"RemainderByZero\""));
+        assert!(json.contains("\"errorClass\":\"REMAINDER_BY_ZERO\""));
+    }
+
+    #[test]
+    fn test_binary_overflow_json() {
+        let error = SparkError::BinaryArithmeticOverflow {
+            value1: "32767".to_string(),
+            symbol: "+".to_string(),
+            value2: "1".to_string(),
+            function_name: "try_add".to_string(),
+        };
+        let json = error.to_json();
+
+        // Verify it's valid JSON
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["errorType"], "BinaryArithmeticOverflow");
+        assert_eq!(parsed["errorClass"], "BINARY_ARITHMETIC_OVERFLOW");
+        assert_eq!(parsed["params"]["value1"], "32767");
+        assert_eq!(parsed["params"]["symbol"], "+");
+        assert_eq!(parsed["params"]["value2"], "1");
+        assert_eq!(parsed["params"]["functionName"], "try_add");
+    }
+
+    #[test]
+    fn test_invalid_array_index_json() {
+        let error = SparkError::InvalidArrayIndex {
+            index_value: 10,
+            array_size: 3,
+        };
+        let json = error.to_json();
+
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["errorType"], "InvalidArrayIndex");
+        assert_eq!(parsed["errorClass"], "INVALID_ARRAY_INDEX");
+        assert_eq!(parsed["params"]["indexValue"], 10);
+        assert_eq!(parsed["params"]["arraySize"], 3);
+    }
+
+    #[test]
+    fn test_numeric_value_out_of_range_json() {
+        let error = SparkError::NumericValueOutOfRange {
+            value: "999.99".to_string(),
+            precision: 5,
+            scale: 2,
+        };
+        let json = error.to_json();
+
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["errorType"], "NumericValueOutOfRange");
+        assert_eq!(parsed["errorClass"], "NUMERIC_VALUE_OUT_OF_RANGE");
+        assert_eq!(parsed["params"]["value"], "999.99");
+        assert_eq!(parsed["params"]["precision"], 5);
+        assert_eq!(parsed["params"]["scale"], 2);
+    }
+
+    #[test]
+    fn test_cast_invalid_value_json() {
+        let error = SparkError::CastInvalidValue {
+            value: "abc".to_string(),
+            from_type: "STRING".to_string(),
+            to_type: "INT".to_string(),
+        };
+        let json = error.to_json();
+
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["errorType"], "CastInvalidValue");
+        assert_eq!(parsed["errorClass"], "CAST_INVALID_INPUT");
+        assert_eq!(parsed["params"]["value"], "abc");
+        assert_eq!(parsed["params"]["fromType"], "STRING");
+        assert_eq!(parsed["params"]["toType"], "INT");
+    }
+
+    #[test]
+    fn test_duplicated_map_key_json() {
+        let error = SparkError::DuplicatedMapKey {
+            key: "duplicate_key".to_string(),
+        };
+        let json = error.to_json();
+
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["errorType"], "DuplicatedMapKey");
+        assert_eq!(parsed["errorClass"], "DUPLICATED_MAP_KEY");
+        assert_eq!(parsed["params"]["key"], "duplicate_key");
+    }
+
+    #[test]
+    fn test_null_map_key_json() {
+        let error = SparkError::NullMapKey;
+        let json = error.to_json();
+
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["errorType"], "NullMapKey");
+        assert_eq!(parsed["errorClass"], "NULL_MAP_KEY");
+        // Params should be an empty object
+        assert_eq!(parsed["params"], serde_json::json!({}));
+    }
+
+    #[test]
+    fn test_error_class_mapping() {
+        // Test that error_class() returns the correct error class
+        assert_eq!(SparkError::DivideByZero.error_class(), Some("DIVIDE_BY_ZERO"));
+        assert_eq!(SparkError::RemainderByZero.error_class(), Some("REMAINDER_BY_ZERO"));
+        assert_eq!(
+            SparkError::InvalidArrayIndex { index_value: 0, array_size: 0 }.error_class(),
+            Some("INVALID_ARRAY_INDEX")
+        );
+        assert_eq!(SparkError::NullMapKey.error_class(), Some("NULL_MAP_KEY"));
+    }
+
+    #[test]
+    fn test_exception_class_mapping() {
+        // Test that exception_class() returns the correct Java exception class
+        assert_eq!(
+            SparkError::DivideByZero.exception_class(),
+            "org/apache/spark/SparkArithmeticException"
+        );
+        assert_eq!(
+            SparkError::InvalidArrayIndex { index_value: 0, array_size: 0 }.exception_class(),
+            "org/apache/spark/SparkArrayIndexOutOfBoundsException"
+        );
+        assert_eq!(
+            SparkError::NullMapKey.exception_class(),
+            "org/apache/spark/SparkRuntimeException"
+        );
     }
 }
