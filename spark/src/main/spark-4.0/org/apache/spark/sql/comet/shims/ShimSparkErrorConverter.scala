@@ -1,0 +1,264 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+package org.apache.spark.sql.comet.shims
+
+import org.apache.spark.SparkException
+import org.apache.spark.sql.errors.QueryExecutionErrors
+import org.apache.spark.sql.types._
+import org.apache.spark.unsafe.types.UTF8String
+
+/**
+ * Spark 4.0-specific implementation for converting error types to proper Spark exceptions.
+ */
+trait ShimSparkErrorConverter {
+
+  /**
+   * Convert error type string and parameters to appropriate Spark exception. Version-specific
+   * implementations call the correct QueryExecutionErrors.* methods.
+   *
+   * @param errorType
+   *   The error type from JSON (e.g., "DivideByZero")
+   * @param errorClass
+   *   The Spark error class (e.g., "DIVIDE_BY_ZERO")
+   * @param params
+   *   Error parameters from JSON
+   * @return
+   *   Throwable (specific exception type from QueryExecutionErrors), or None if unknown
+   */
+  def convertErrorType(
+      errorType: String,
+      errorClass: String,
+      params: Map[String, Any]): Option[Throwable] = {
+
+    val context = null // Phase 1: No QueryContext support yet
+
+    errorType match {
+      // ==================== Arithmetic Errors ====================
+
+      case "DivideByZero" =>
+        Some(QueryExecutionErrors.divideByZeroError(context))
+
+      case "RemainderByZero" =>
+        // SPARK 4.0 REMOVED remainderByZeroError - use generic arithmetic exception
+        Some(
+          new SparkException(
+            errorClass = "REMAINDER_BY_ZERO",
+            messageParameters = params.map { case (k, v) => (k, v.toString) },
+            cause = null))
+
+      case "IntervalDividedByZero" =>
+        Some(QueryExecutionErrors.intervalDividedByZeroError(context))
+
+      case "BinaryArithmeticOverflow" =>
+        Some(
+          QueryExecutionErrors.binaryArithmeticCauseOverflowError(
+            params("value1").toString.toShort,
+            params("symbol").toString,
+            params("value2").toString.toShort,
+            params("functionName").toString))
+
+      case "ArithmeticOverflow" =>
+        Some(QueryExecutionErrors.overflowInIntegralDivideError(context))
+
+      case "NumericValueOutOfRange" =>
+        val decimal = Decimal(params("value").toString)
+        Some(
+          QueryExecutionErrors.cannotChangeDecimalPrecisionError(
+            decimal,
+            params("precision").toString.toInt,
+            params("scale").toString.toInt,
+            context))
+
+      case "DatetimeOverflow" =>
+        // Spark 4.0 doesn't have datetimeOverflowError - use generic arithmetic exception
+        Some(
+          new SparkException(
+            errorClass = "DATETIME_OVERFLOW",
+            messageParameters = params.map { case (k, v) => (k, v.toString) },
+            cause = null))
+
+      // ==================== Array Index Errors ====================
+
+      case "InvalidArrayIndex" =>
+        Some(
+          QueryExecutionErrors.invalidArrayIndexError(
+            params("indexValue").toString.toInt,
+            params("arraySize").toString.toInt,
+            context))
+
+      case "InvalidElementAtIndex" =>
+        Some(
+          QueryExecutionErrors.invalidElementAtIndexError(
+            params("indexValue").toString.toInt,
+            params("arraySize").toString.toInt,
+            context))
+
+      case "InvalidIndexOfZero" =>
+        Some(QueryExecutionErrors.invalidIndexOfZeroError(context))
+
+      case "InvalidBitmapPosition" =>
+        Some(
+          QueryExecutionErrors.invalidBitmapPositionError(
+            params("bitPosition").toString.toLong,
+            params("bitmapNumBytes").toString.toLong))
+
+      // ==================== Map/Collection Errors ====================
+
+      case "DuplicatedMapKey" =>
+        Some(QueryExecutionErrors.duplicateMapKeyFoundError(params("key")))
+
+      case "NullMapKey" =>
+        Some(QueryExecutionErrors.nullAsMapKeyNotAllowedError())
+
+      case "MapKeyValueDiffSizes" =>
+        Some(QueryExecutionErrors.mapDataKeyArrayLengthDiffersFromValueArrayLengthError())
+
+      case "ExceedMapSizeLimit" =>
+        Some(QueryExecutionErrors.exceedMapSizeLimitError(params("size").toString.toInt))
+
+      case "CollectionSizeLimitExceeded" =>
+        Some(
+          QueryExecutionErrors.createArrayWithElementsExceedLimitError(
+            "array",
+            params("numElements").toString.toLong))
+
+      // ==================== Null Validation Errors ====================
+
+      case "NotNullAssertViolation" =>
+        Some(
+          QueryExecutionErrors.foundNullValueForNotNullableFieldError(
+            params("fieldName").toString))
+
+      case "ValueIsNull" =>
+        Some(
+          QueryExecutionErrors.fieldCannotBeNullError(
+            params.getOrElse("rowIndex", 0).toString.toInt,
+            params("fieldName").toString))
+
+      // ==================== DateTime Errors ====================
+
+      case "CannotParseTimestamp" =>
+        Some(
+          QueryExecutionErrors.ansiDateTimeParseError(
+            new Exception(params("message").toString),
+            params("suggestedFunc").toString))
+
+      case "InvalidFractionOfSecond" =>
+        Some(QueryExecutionErrors.invalidFractionOfSecondError(params("value").toString.toDouble))
+
+      // ==================== Cast Errors ====================
+
+      case "CastInvalidValue" =>
+        val str = UTF8String.fromString(params("value").toString)
+        val targetType = getDataType(params("toType").toString)
+        Some(QueryExecutionErrors.invalidInputInCastToNumberError(targetType, str, context))
+
+      case "CastOverFlow" =>
+        val fromType = getDataType(params("fromType").toString)
+        val toType = getDataType(params("toType").toString)
+        Some(
+          QueryExecutionErrors.castingCauseOverflowError(
+            params("value"), // Pass as Any, not String
+            fromType,
+            toType))
+
+      case "CannotParseDecimal" =>
+        Some(QueryExecutionErrors.cannotParseDecimalError())
+
+      // ==================== String/UTF8 Errors ====================
+
+      case "InvalidUtf8String" =>
+        val hexStr = UTF8String.fromString(params("hexString").toString)
+        Some(QueryExecutionErrors.invalidUTF8StringError(hexStr))
+
+      // ==================== Function Parameter Errors ====================
+
+      case "UnexpectedPositiveValue" =>
+        Some(
+          QueryExecutionErrors.unexpectedValueForStartInFunctionError(
+            params("parameterName").toString))
+
+      case "UnexpectedNegativeValue" =>
+        Some(
+          QueryExecutionErrors.unexpectedValueForLengthInFunctionError(
+            params("parameterName").toString,
+            params("actualValue").toString.toInt))
+
+      // ==================== Regex Errors ====================
+
+      case "InvalidRegexGroupIndex" =>
+        Some(
+          QueryExecutionErrors.invalidRegexGroupIndexError(
+            params("functionName").toString,
+            params("groupCount").toString.toInt,
+            params("groupIndex").toString.toInt))
+
+      // ==================== Unsupported Operation Errors ====================
+
+      case "DatatypeCannotOrder" =>
+        Some(
+          QueryExecutionErrors.orderedOperationUnsupportedByDataTypeError(
+            params("dataType").toString))
+
+      // ==================== Subquery Errors ====================
+
+      case "ScalarSubqueryTooManyRows" =>
+        Some(QueryExecutionErrors.multipleRowScalarSubqueryError(context))
+
+      // ==================== Interval Arithmetic Errors ====================
+
+      case "IntervalArithmeticOverflowWithSuggestion" =>
+        Some(
+          QueryExecutionErrors.withSuggestionIntervalArithmeticOverflowError(
+            params.get("functionName").map(_.toString).getOrElse(""),
+            context))
+
+      case "IntervalArithmeticOverflowWithoutSuggestion" =>
+        Some(QueryExecutionErrors.withoutSuggestionIntervalArithmeticOverflowError(context))
+
+      case _ =>
+        // Unknown error type - return None to trigger fallback
+        None
+    }
+  }
+
+  private def getDataType(typeName: String): DataType = {
+    typeName.toUpperCase match {
+      case "BYTE" | "TINYINT" => ByteType
+      case "SHORT" | "SMALLINT" => ShortType
+      case "INT" | "INTEGER" => IntegerType
+      case "LONG" | "BIGINT" => LongType
+      case "FLOAT" | "REAL" => FloatType
+      case "DOUBLE" => DoubleType
+      case "DECIMAL" => DecimalType.SYSTEM_DEFAULT
+      case "STRING" | "VARCHAR" => StringType
+      case "BINARY" => BinaryType
+      case "BOOLEAN" => BooleanType
+      case "DATE" => DateType
+      case "TIMESTAMP" => TimestampType
+      case _ =>
+        try {
+          DataType.fromDDL(typeName)
+        } catch {
+          case _: Exception => StringType
+        }
+    }
+  }
+}

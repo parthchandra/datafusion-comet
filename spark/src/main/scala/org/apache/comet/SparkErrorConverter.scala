@@ -23,20 +23,23 @@ import org.json4s._
 import org.json4s.jackson.JsonMethods._
 
 import org.apache.spark.SparkException
+import org.apache.spark.sql.comet.shims.ShimSparkErrorConverter
 
 import org.apache.comet.exceptions.CometQueryExecutionException
 
 /**
  * Converts CometQueryExecutionException (with JSON payload) to appropriate Spark
- * QueryExecutionErrors.* exceptions.
+ * QueryExecutionErrors.* exceptions using version-specific shims.
  *
- * This converter parses the JSON-encoded error information from native execution and dispatches
- * to the corresponding QueryExecutionErrors factory method.
+ * This converter parses the JSON-encoded error information from native execution and delegates to
+ * the version-specific ShimSparkErrorConverter trait for conversion to proper Spark exception
+ * types.
  *
- * NOTE: Phase 1 (MVP) implementation - returns generic SparkException with error class. Phase 2
- * will add full QueryExecutionErrors integration with version-specific shims.
+ * For Spark 4.0+, this returns properly typed exceptions (SparkArithmeticException,
+ * SparkArrayIndexOutOfBoundsException, etc.). For Spark 3.x, falls back to generic
+ * SparkException.
  */
-object SparkErrorConverter {
+object SparkErrorConverter extends ShimSparkErrorConverter {
 
   implicit val formats: DefaultFormats.type = DefaultFormats
 
@@ -48,8 +51,8 @@ object SparkErrorConverter {
   /**
    * Parse JSON from exception and convert to appropriate Spark exception.
    *
-   * Phase 1 (MVP): Returns a SparkException with the error class and formatted message. Phase 2:
-   * Will call specific QueryExecutionErrors.* methods per Spark version.
+   * Delegates to version-specific ShimSparkErrorConverter.convertErrorType() to call the proper
+   * QueryExecutionErrors.* method for the Spark version.
    *
    * @param e
    *   the CometQueryExecutionException with JSON message
@@ -68,36 +71,24 @@ object SparkErrorConverter {
       val params = errorJson.params.getOrElse(Map.empty)
       val errorClass = errorJson.errorClass.getOrElse("_LEGACY_ERROR_TEMP_COMET")
 
-      // Phase 1 (MVP): Create generic SparkException with error class and message
-      // This ensures errors are properly categorized and can be caught by error class
-      val message = formatErrorMessage(errorJson.errorType, errorClass, params)
+      // Delegate to version-specific shim
+      convertErrorType(errorJson.errorType, errorClass, params) match {
+        case Some(exception) =>
+          // Shim successfully converted - return the proper typed exception
+          exception
 
-      new SparkException(
-        errorClass = errorClass,
-        messageParameters = paramsToStringMap(params),
-        cause = null)
+        case None =>
+          // Unknown error type - fallback to generic SparkException (Phase 1 behavior)
+          new SparkException(
+            errorClass = errorClass,
+            messageParameters = paramsToStringMap(params),
+            cause = null)
+      }
     } catch {
       case _: Exception =>
         // JSON parsing failed, return original exception
         e
     }
-  }
-
-  /**
-   * Format error message from error type and parameters.
-   */
-  private def formatErrorMessage(
-      errorType: String,
-      errorClass: String,
-      params: Map[String, Any]): String = {
-    // Create a human-readable message from the error type and parameters
-    val paramStr = if (params.nonEmpty) {
-      params.map { case (k, v) => s"$k=$v" }.mkString(", ")
-    } else {
-      ""
-    }
-
-    s"[$errorClass] $errorType${if (paramStr.nonEmpty) s": $paramStr" else ""}"
   }
 
   /**
