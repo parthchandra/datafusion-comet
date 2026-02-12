@@ -3706,9 +3706,13 @@ mod tests {
                     type_info: None,
                 }),
             })),
+            query_context: None,
+            expr_id: None,
         };
         let right = spark_expression::Expr {
             expr_struct: Some(Literal(lit)),
+            query_context: None,
+            expr_id: None,
         };
 
         let expr = spark_expression::Expr {
@@ -3716,6 +3720,8 @@ mod tests {
                 left: Some(Box::new(left)),
                 right: Some(Box::new(right)),
             }))),
+            query_context: None,
+            expr_id: None,
         };
 
         Operator {
@@ -3771,6 +3777,8 @@ mod tests {
                 index,
                 datatype: Some(create_proto_datatype()),
             })),
+            query_context: None,
+            expr_id: None,
         }
     }
 
@@ -3836,6 +3844,8 @@ mod tests {
                     type_info: None,
                 }),
             })),
+            query_context: None,
+            expr_id: None,
         };
 
         let array_col_1 = spark_expression::Expr {
@@ -3846,6 +3856,8 @@ mod tests {
                     type_info: None,
                 }),
             })),
+            query_context: None,
+            expr_id: None,
         };
 
         let projection = Operator {
@@ -3859,6 +3871,8 @@ mod tests {
                         return_type: None,
                         fail_on_error: false,
                     })),
+                    query_context: None,
+                    expr_id: None,
                 }],
             })),
         };
@@ -3953,6 +3967,8 @@ mod tests {
                     type_info: None,
                 }),
             })),
+            query_context: None,
+            expr_id: None,
         };
 
         // Mock expression to read a INT32 column with position 1
@@ -3964,6 +3980,8 @@ mod tests {
                     type_info: None,
                 }),
             })),
+            query_context: None,
+            expr_id: None,
         };
 
         // Make a projection operator with array_repeat(array_col, array_col_1)
@@ -3978,6 +3996,8 @@ mod tests {
                         return_type: None,
                         fail_on_error: false,
                     })),
+                    query_context: None,
+                    expr_id: None,
                 }],
             })),
         };

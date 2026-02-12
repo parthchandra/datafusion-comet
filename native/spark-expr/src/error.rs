@@ -251,6 +251,7 @@ impl SparkError {
         match self {
             SparkError::CastInvalidValue { .. } => "CastInvalidValue",
             SparkError::NumericValueOutOfRange { .. } => "NumericValueOutOfRange",
+            SparkError::NumericOutOfRange { .. } => "NumericOutOfRange",
             SparkError::CastOverFlow { .. } => "CastOverFlow",
             SparkError::CannotParseDecimal => "CannotParseDecimal",
             SparkError::ArithmeticOverflow { .. } => "ArithmeticOverflow",
@@ -300,6 +301,11 @@ impl SparkError {
                     "value": value,
                     "precision": precision,
                     "scale": scale,
+                })
+            }
+            SparkError::NumericOutOfRange { value } => {
+                serde_json::json!({
+                    "value": value,
                 })
             }
             SparkError::CastOverFlow { value, from_type, to_type } => {
@@ -437,6 +443,7 @@ impl SparkError {
             | SparkError::RemainderByZero
             | SparkError::IntervalDividedByZero
             | SparkError::NumericValueOutOfRange { .. }
+            | SparkError::NumericOutOfRange { .. }
             | SparkError::ArithmeticOverflow { .. }
             | SparkError::BinaryArithmeticOverflow { .. }
             | SparkError::IntervalArithmeticOverflowWithSuggestion { .. }
@@ -487,6 +494,7 @@ impl SparkError {
             SparkError::CastInvalidValue { .. } => Some("CAST_INVALID_INPUT"),
             SparkError::CastOverFlow { .. } => Some("CAST_OVERFLOW"),
             SparkError::NumericValueOutOfRange { .. } => Some("NUMERIC_VALUE_OUT_OF_RANGE"),
+            SparkError::NumericOutOfRange { .. } => Some("NUMERIC_OUT_OF_SUPPORTED_RANGE"),
             SparkError::CannotParseDecimal => Some("CANNOT_PARSE_DECIMAL"),
 
             // Arithmetic errors
