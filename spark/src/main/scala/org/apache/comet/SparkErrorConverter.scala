@@ -87,7 +87,7 @@ object SparkErrorConverter extends ShimSparkErrorConverter {
       val sparkContext: Array[QueryContext] = errorJson.context match {
         case Some(ctx) =>
           Array(
-            new SQLQueryContext(
+            SQLQueryContext(
               sqlText = Some(ctx.sqlText),
               line = Some(ctx.line),
               startPosition = Some(ctx.startPosition),
@@ -100,23 +100,28 @@ object SparkErrorConverter extends ShimSparkErrorConverter {
 
       val summary: String = errorJson.summary.orNull
 
-      // Delegate to version-specific shim
-      convertErrorType(errorJson.errorType, errorClass, params, sparkContext, summary) match {
+      // Delegate to version-specific shim - let conversion exceptions propagate
+      val optEx = convertErrorType(errorJson.errorType, errorClass, params, sparkContext, summary)
+      optEx match {
         case Some(exception) =>
           // Shim successfully converted - return the proper typed exception
           exception
 
         case None =>
-          // Unknown error type - fallback to generic SparkException (Phase 1 behavior)
+          // Unknown error type - fallback to generic SparkException
           new SparkException(
             errorClass = errorClass,
             messageParameters = paramsToStringMap(params),
             cause = null)
       }
     } catch {
-      case _: Exception =>
+      // Only catch JSON parsing/mapping exceptions - let conversion exceptions propagate
+      case exep: org.json4s.MappingException =>
         // JSON parsing failed, return original exception
-        e
+        exep
+      case exep2: com.fasterxml.jackson.core.JsonParseException =>
+        // JSON parsing failed, return original exception
+        exep2
     }
   }
 

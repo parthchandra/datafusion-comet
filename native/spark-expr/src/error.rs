@@ -443,7 +443,7 @@ impl SparkError {
             | SparkError::RemainderByZero
             | SparkError::IntervalDividedByZero
             | SparkError::NumericValueOutOfRange { .. }
-            | SparkError::NumericOutOfRange { .. }
+            | SparkError::NumericOutOfRange { .. } // Comet-specific extension
             | SparkError::ArithmeticOverflow { .. }
             | SparkError::BinaryArithmeticOverflow { .. }
             | SparkError::IntervalArithmeticOverflowWithSuggestion { .. }
@@ -453,6 +453,9 @@ impl SparkError {
             // CastOverflow gets special handling with CastOverflowException
             SparkError::CastOverFlow { .. } => "org/apache/spark/sql/comet/CastOverflowException",
 
+            // NumberFormatException (for cast invalid input errors)
+            SparkError::CastInvalidValue { .. } => "org/apache/spark/SparkNumberFormatException",
+
             // ArrayIndexOutOfBoundsException
             SparkError::InvalidArrayIndex { .. }
             | SparkError::InvalidElementAtIndex { .. }
@@ -460,16 +463,14 @@ impl SparkError {
             | SparkError::InvalidIndexOfZero => "org/apache/spark/SparkArrayIndexOutOfBoundsException",
 
             // RuntimeException
-            SparkError::CastInvalidValue { .. }
-            | SparkError::CannotParseDecimal
+            SparkError::CannotParseDecimal
             | SparkError::DuplicatedMapKey { .. }
             | SparkError::NullMapKey
             | SparkError::MapKeyValueDiffSizes
             | SparkError::ExceedMapSizeLimit { .. }
             | SparkError::CollectionSizeLimitExceeded { .. }
             | SparkError::NotNullAssertViolation { .. }
-            | SparkError::ValueIsNull { .. }
-            | SparkError::InvalidUtf8String { .. }
+            | SparkError::ValueIsNull { .. } // Comet-specific extension
             | SparkError::UnexpectedPositiveValue { .. }
             | SparkError::UnexpectedNegativeValue { .. }
             | SparkError::InvalidRegexGroupIndex { .. }
@@ -480,7 +481,8 @@ impl SparkError {
             | SparkError::InvalidFractionOfSecond { .. } => "org/apache/spark/SparkDateTimeException",
 
             // IllegalArgumentException
-            SparkError::DatatypeCannotOrder { .. } => "org/apache/spark/SparkIllegalArgumentException",
+            SparkError::DatatypeCannotOrder { .. }
+            | SparkError::InvalidUtf8String { .. } => "org/apache/spark/SparkIllegalArgumentException",
 
             // Generic errors
             SparkError::Arrow(_) | SparkError::Internal(_) => "org/apache/spark/SparkException",

@@ -180,11 +180,25 @@ trait ShimSparkErrorConverter {
       case "CastOverFlow" =>
         val fromType = getDataType(params("fromType").toString)
         val toType = getDataType(params("toType").toString)
-        Some(
-          QueryExecutionErrors.castingCauseOverflowError(
-            params("value"), // Pass as Any, not String
-            fromType,
-            toType))
+        val valueStr = params("value").toString
+
+        // Convert string value to appropriate type for toSQLValue
+        val typedValue: Any = fromType match {
+          case _: DecimalType =>
+            // Parse decimal string (may have "BD" suffix from BigDecimal.toString)
+            val cleanStr = if (valueStr.endsWith("BD")) valueStr.dropRight(2) else valueStr
+            Decimal(cleanStr)
+          case ByteType => valueStr.toByte
+          case ShortType => valueStr.toShort
+          case IntegerType => valueStr.toInt
+          case LongType => valueStr.toLong
+          case FloatType => valueStr.toFloat
+          case DoubleType => valueStr.toDouble
+          case StringType => UTF8String.fromString(valueStr)
+          case _ => valueStr // Fallback to string
+        }
+
+        Some(QueryExecutionErrors.castingCauseOverflowError(typedValue, fromType, toType))
 
       case "CannotParseDecimal" =>
         Some(QueryExecutionErrors.cannotParseDecimalError())
