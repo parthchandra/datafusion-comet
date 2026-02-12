@@ -25,6 +25,8 @@ import org.json4s.jackson.JsonMethods._
 import org.apache.spark.{QueryContext, SparkException}
 import org.apache.spark.sql.catalyst.trees.SQLQueryContext
 import org.apache.spark.sql.comet.shims.ShimSparkErrorConverter
+import org.apache.spark.sql.errors.QueryExecutionErrors
+import org.apache.spark.sql.types.Decimal
 
 import org.apache.comet.exceptions.CometQueryExecutionException
 

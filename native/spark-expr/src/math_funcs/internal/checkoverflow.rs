@@ -25,6 +25,8 @@ use datafusion::common::{DataFusionError, ScalarValue};
 use datafusion::logical_expr::ColumnarValue;
 use datafusion::physical_expr::PhysicalExpr;
 use std::hash::Hash;
+
+use crate::SparkError;
 use std::{
     any::Any,
     fmt::{Display, Formatter},
@@ -113,8 +115,34 @@ impl PhysicalExpr for CheckOverflow {
                 let decimal_array = as_primitive_array::<Decimal128Type>(&array);
 
                 let casted_array = if self.fail_on_error {
-                    // Returning error if overflow
-                    decimal_array.validate_decimal_precision(*precision)?;
+                    // Returning error if overflow - convert decimal overflow to SparkError
+                    decimal_array
+                        .validate_decimal_precision(*precision)
+                        .map_err(|e| {
+                            if matches!(e, arrow::error::ArrowError::InvalidArgumentError(_))
+                                && e.to_string().contains("too large to store in a Decimal128") {
+                                // Find the first overflowing value
+                                let overflow_value = decimal_array
+                                    .iter()
+                                    .find(|v| {
+                                        if let Some(val) = v {
+                                            !arrow::array::types::Decimal128Type::validate_decimal_precision(
+                                                *val, *precision, *scale
+                                            ).is_ok()
+                                        } else {
+                                            false
+                                        }
+                                    })
+                                    .and_then(|v| v)
+                                    .unwrap_or(0);
+
+                                DataFusionError::External(Box::new(
+                                    crate::error::decimal_overflow_error(overflow_value, *precision, *scale)
+                                ))
+                            } else {
+                                DataFusionError::ArrowError(Box::new(e), None)
+                            }
+                        })?;
                     decimal_array
                 } else {
                     // Overflowing gets null value
@@ -123,7 +151,22 @@ impl PhysicalExpr for CheckOverflow {
 
                 let new_array = Decimal128Array::from(casted_array.into_data())
                     .with_precision_and_scale(*precision, *scale)
-                    .map(|a| Arc::new(a) as ArrayRef)?;
+                    .map(|a| Arc::new(a) as ArrayRef)
+                    .map_err(|e| {
+                        if matches!(e, arrow::error::ArrowError::InvalidArgumentError(_))
+                            && e.to_string().contains("too large to store in a Decimal128") {
+                            // Fallback error handling
+                            DataFusionError::External(Box::new(
+                                SparkError::NumericValueOutOfRange {
+                                    value: "overflow".to_string(),
+                                    precision: *precision,
+                                    scale: *scale,
+                                }
+                            ))
+                        } else {
+                            DataFusionError::ArrowError(Box::new(e), None)
+                        }
+                    })?;
 
                 Ok(ColumnarValue::Array(new_array))
             }
