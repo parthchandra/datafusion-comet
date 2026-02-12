@@ -550,6 +550,106 @@ impl SparkError {
 
 pub type SparkResult<T> = Result<T, SparkError>;
 
+/// Wrapper that adds QueryContext to SparkError without modifying SparkError variants.
+///
+/// This allows attaching SQL context information (query text, line/position, object name)
+/// to errors without breaking existing code that uses SparkError directly.
+#[derive(Debug, Clone)]
+pub struct SparkErrorWithContext {
+    /// The underlying SparkError
+    pub error: SparkError,
+    /// Optional QueryContext for SQL location information
+    pub context: Option<Arc<crate::QueryContext>>,
+}
+
+impl SparkErrorWithContext {
+    /// Create a SparkErrorWithContext without context
+    pub fn new(error: SparkError) -> Self {
+        Self {
+            error,
+            context: None,
+        }
+    }
+
+    /// Create a SparkErrorWithContext with QueryContext
+    pub fn with_context(error: SparkError, context: Arc<crate::QueryContext>) -> Self {
+        Self {
+            error,
+            context: Some(context),
+        }
+    }
+
+    /// Serialize to JSON including optional context field
+    ///
+    /// JSON structure:
+    /// ```json
+    /// {
+    ///   "errorType": "DivideByZero",
+    ///   "errorClass": "DIVIDE_BY_ZERO",
+    ///   "params": {},
+    ///   "context": {
+    ///     "sqlText": "SELECT a/b FROM t",
+    ///     "startIndex": 7,
+    ///     "stopIndex": 9,
+    ///     "line": 1,
+    ///     "startPosition": 7
+    ///   },
+    ///   "summary": "== SQL (line 1, position 8) ==\n..."
+    /// }
+    /// ```
+    pub fn to_json(&self) -> String {
+        let mut json_obj = serde_json::json!({
+            "errorType": self.error.error_type_name(),
+            "errorClass": self.error.error_class().unwrap_or(""),
+            "params": self.error.params_as_json(),
+        });
+
+        if let Some(ctx) = &self.context {
+            // Serialize context fields
+            json_obj["context"] = serde_json::json!({
+                "sqlText": ctx.sql_text.as_str(),
+                "startIndex": ctx.start_index,
+                "stopIndex": ctx.stop_index,
+                "objectType": ctx.object_type,
+                "objectName": ctx.object_name,
+                "line": ctx.line,
+                "startPosition": ctx.start_position,
+            });
+
+            // Add formatted summary
+            json_obj["summary"] = serde_json::json!(ctx.format_summary());
+        }
+
+        serde_json::to_string(&json_obj).unwrap_or_else(|e| {
+            format!("{{\"errorType\":\"SerializationError\",\"message\":\"{}\"}}", e)
+        })
+    }
+}
+
+impl std::fmt::Display for SparkErrorWithContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.error)?;
+        if let Some(ctx) = &self.context {
+            write!(f, "\n{}", ctx.format_summary())?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for SparkErrorWithContext {}
+
+impl From<SparkError> for SparkErrorWithContext {
+    fn from(error: SparkError) -> Self {
+        SparkErrorWithContext::new(error)
+    }
+}
+
+impl From<SparkErrorWithContext> for DataFusionError {
+    fn from(value: SparkErrorWithContext) -> Self {
+        DataFusionError::External(Box::new(value))
+    }
+}
+
 impl From<ArrowError> for SparkError {
     fn from(value: ArrowError) -> Self {
         SparkError::Arrow(Arc::new(value))

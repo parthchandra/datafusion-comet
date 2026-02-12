@@ -19,6 +19,8 @@
 
 package org.apache.comet.serde
 
+import java.util.concurrent.atomic.AtomicLong
+
 import scala.jdk.CollectionConverters._
 
 import org.apache.spark.internal.Logging
@@ -264,6 +266,76 @@ object QueryPlanSerde extends Logging with CometExprShim {
     classOf[Sum] -> CometSum,
     classOf[VariancePop] -> CometVariancePop,
     classOf[VarianceSamp] -> CometVarianceSamp)
+
+  /**
+   * Atomic counter for generating unique expression IDs. Each expression gets a unique ID which
+   * is used to look up QueryContext during error creation.
+   */
+  private val exprIdCounter = new AtomicLong(0)
+
+  /**
+   * Generate the next unique expression ID.
+   */
+  private def nextExprId(): Long = exprIdCounter.incrementAndGet()
+
+  /**
+   * Extract QueryContext from a Spark expression's origin.
+   *
+   * This method extracts SQL context information (query text, line/position, object name) from
+   * the expression's origin, which is used for rich error messages.
+   *
+   * @param expr
+   *   The Spark expression to extract context from
+   * @return
+   *   Some(QueryContext) if origin is present, None otherwise
+   */
+  private def extractQueryContext(expr: Expression): Option[ExprOuterClass.QueryContext] = {
+    val contexts = expr.origin.getQueryContext
+    if (contexts != null && contexts.length > 0) {
+      try {
+        val ctx = contexts(0)
+        // Check if this is a SQLQueryContext with additional fields
+        ctx match {
+          case sqlCtx: org.apache.spark.sql.catalyst.trees.SQLQueryContext =>
+            val builder = ExprOuterClass.QueryContext
+              .newBuilder()
+              .setSqlText(sqlCtx.sqlText.getOrElse(""))
+              .setStartIndex(sqlCtx.originStartIndex.getOrElse(ctx.startIndex))
+              .setStopIndex(sqlCtx.originStopIndex.getOrElse(ctx.stopIndex))
+              .setLine(sqlCtx.line.getOrElse(0))
+              .setStartPosition(sqlCtx.startPosition.getOrElse(0))
+
+            // Add optional fields if present
+            sqlCtx.originObjectType.foreach(builder.setObjectType)
+            sqlCtx.originObjectName.foreach(builder.setObjectName)
+
+            Some(builder.build())
+          case _ =>
+            // Fallback: use only QueryContext interface methods
+            val builder = ExprOuterClass.QueryContext
+              .newBuilder()
+              .setSqlText(ctx.fragment())
+              .setStartIndex(ctx.startIndex())
+              .setStopIndex(ctx.stopIndex())
+              .setLine(0)
+              .setStartPosition(0)
+
+            if (ctx.objectType() != null && !ctx.objectType().isEmpty) {
+              builder.setObjectType(ctx.objectType())
+            }
+            if (ctx.objectName() != null && !ctx.objectName().isEmpty) {
+              builder.setObjectName(ctx.objectName())
+            }
+
+            Some(builder.build())
+        }
+      } catch {
+        case _: Exception => None
+      }
+    } else {
+      None
+    }
+  }
 
   def supportedDataType(dt: DataType, allowComplex: Boolean = false): Boolean = dt match {
     case _: ByteType | _: ShortType | _: IntegerType | _: LongType | _: FloatType |
@@ -548,22 +620,32 @@ object QueryPlanSerde extends Logging with CometExprShim {
       }
     }
 
-    versionSpecificExprToProtoInternal(expr, inputs, binding).orElse(expr match {
+    versionSpecificExprToProtoInternal(expr, inputs, binding)
+      .orElse(expr match {
 
-      case UnaryExpression(child) if expr.prettyName == "promote_precision" =>
-        // `UnaryExpression` includes `PromotePrecision` for Spark 3.3
-        // `PromotePrecision` is just a wrapper, don't need to serialize it.
-        exprToProtoInternal(child, inputs, binding)
+        case UnaryExpression(child) if expr.prettyName == "promote_precision" =>
+          // `UnaryExpression` includes `PromotePrecision` for Spark 3.3
+          // `PromotePrecision` is just a wrapper, don't need to serialize it.
+          exprToProtoInternal(child, inputs, binding)
 
-      case expr =>
-        QueryPlanSerde.exprSerdeMap.get(expr.getClass) match {
-          case Some(handler) =>
-            convert(expr, handler.asInstanceOf[CometExpressionSerde[Expression]])
-          case _ =>
-            withInfo(expr, s"${expr.prettyName} is not supported", expr.children: _*)
-            None
+        case expr =>
+          QueryPlanSerde.exprSerdeMap.get(expr.getClass) match {
+            case Some(handler) =>
+              convert(expr, handler.asInstanceOf[CometExpressionSerde[Expression]])
+            case _ =>
+              withInfo(expr, s"${expr.prettyName} is not supported", expr.children: _*)
+              None
+          }
+      })
+      .map { protoExpr =>
+        // Attach QueryContext and expr_id to the expression
+        val builder = protoExpr.toBuilder
+        builder.setExprId(nextExprId())
+        extractQueryContext(expr).foreach { ctx =>
+          builder.setQueryContext(ctx)
         }
-    })
+        builder.build()
+      }
   }
 
   /**

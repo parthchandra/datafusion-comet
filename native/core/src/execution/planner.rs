@@ -251,6 +251,24 @@ impl PhysicalPlanner {
         spark_expr: &Expr,
         input_schema: SchemaRef,
     ) -> Result<Arc<dyn PhysicalExpr>, ExecutionError> {
+        // Register QueryContext if present
+        if let (Some(expr_id), Some(ctx_proto)) = (spark_expr.expr_id, spark_expr.query_context.as_ref()) {
+            // Deserialize QueryContext from protobuf
+            let query_ctx = datafusion_comet_spark_expr::QueryContext::new(
+                ctx_proto.sql_text.clone(),
+                ctx_proto.start_index,
+                ctx_proto.stop_index,
+                ctx_proto.object_type.clone(),
+                ctx_proto.object_name.clone(),
+                ctx_proto.line,
+                ctx_proto.start_position,
+            );
+
+            // Register in global registry
+            let registry = crate::execution::context::get_global_query_context_registry();
+            registry.register(expr_id, query_ctx);
+        }
+
         // Try to use the modular registry first - this automatically handles any registered expression types
         if ExpressionRegistry::global().can_handle(spark_expr) {
             return ExpressionRegistry::global().create_expr(spark_expr, input_schema, self);

@@ -22,7 +22,8 @@ package org.apache.comet
 import org.json4s._
 import org.json4s.jackson.JsonMethods._
 
-import org.apache.spark.SparkException
+import org.apache.spark.{QueryContext, SparkException}
+import org.apache.spark.sql.catalyst.trees.SQLQueryContext
 import org.apache.spark.sql.comet.shims.ShimSparkErrorConverter
 
 import org.apache.comet.exceptions.CometQueryExecutionException
@@ -43,10 +44,21 @@ object SparkErrorConverter extends ShimSparkErrorConverter {
 
   implicit val formats: DefaultFormats.type = DefaultFormats
 
+  case class QueryContextJson(
+      sqlText: String,
+      startIndex: Int,
+      stopIndex: Int,
+      objectType: Option[String],
+      objectName: Option[String],
+      line: Int,
+      startPosition: Int)
+
   case class ErrorJson(
       errorType: String,
       errorClass: Option[String],
-      params: Option[Map[String, Any]])
+      params: Option[Map[String, Any]],
+      context: Option[QueryContextJson],
+      summary: Option[String])
 
   /**
    * Parse JSON from exception and convert to appropriate Spark exception.
@@ -71,8 +83,25 @@ object SparkErrorConverter extends ShimSparkErrorConverter {
       val params = errorJson.params.getOrElse(Map.empty)
       val errorClass = errorJson.errorClass.getOrElse("_LEGACY_ERROR_TEMP_COMET")
 
+      // Build Spark SQLQueryContext if context is present
+      val sparkContext: Array[QueryContext] = errorJson.context match {
+        case Some(ctx) =>
+          Array(
+            new SQLQueryContext(
+              sqlText = Some(ctx.sqlText),
+              line = Some(ctx.line),
+              startPosition = Some(ctx.startPosition),
+              originStartIndex = Some(ctx.startIndex),
+              originStopIndex = Some(ctx.stopIndex),
+              originObjectType = ctx.objectType,
+              originObjectName = ctx.objectName))
+        case None => null // No context available
+      }
+
+      val summary: String = errorJson.summary.orNull
+
       // Delegate to version-specific shim
-      convertErrorType(errorJson.errorType, errorClass, params) match {
+      convertErrorType(errorJson.errorType, errorClass, params, sparkContext, summary) match {
         case Some(exception) =>
           // Shim successfully converted - return the proper typed exception
           exception

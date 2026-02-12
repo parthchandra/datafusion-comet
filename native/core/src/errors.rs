@@ -39,7 +39,7 @@ use jni::sys::{jboolean, jbyte, jchar, jdouble, jfloat, jint, jlong, jobject, js
 
 use crate::execution::operators::ExecutionError;
 use datafusion_comet_spark_expr::SparkError;
-use jni::objects::{GlobalRef, JThrowable, JValue};
+use jni::objects::{GlobalRef, JThrowable};
 use jni::JNIEnv;
 use lazy_static::lazy_static;
 use parquet::errors::ParquetError;
@@ -397,7 +397,17 @@ fn throw_exception(env: &mut JNIEnv, error: &CometError, backtrace: Option<Strin
                 msg: _,
                 source: DataFusionError::External(e),
             } => {
-                if let Some(spark_error) = e.downcast_ref::<SparkError>() {
+                // Try SparkErrorWithContext first (includes context)
+                if let Some(spark_error_with_ctx) =
+                    e.downcast_ref::<datafusion_comet_spark_expr::SparkErrorWithContext>()
+                {
+                    let json_message = spark_error_with_ctx.to_json();
+                    env.throw_new(
+                        "org/apache/comet/exceptions/CometQueryExecutionException",
+                        json_message,
+                    )
+                } else if let Some(spark_error) = e.downcast_ref::<SparkError>() {
+                    // Fall back to plain SparkError (no context)
                     throw_spark_error_as_json(env, spark_error)
                 } else {
                     // Not a SparkError, use generic exception

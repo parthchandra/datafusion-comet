@@ -19,6 +19,7 @@
 
 package org.apache.spark.sql.comet.shims
 
+import org.apache.spark.QueryContext
 import org.apache.spark.SparkException
 import org.apache.spark.sql.errors.QueryExecutionErrors
 import org.apache.spark.sql.types._
@@ -39,21 +40,25 @@ trait ShimSparkErrorConverter {
    *   The Spark error class (e.g., "DIVIDE_BY_ZERO")
    * @param params
    *   Error parameters from JSON
+   * @param context
+   *   QueryContext array with SQL text and position information
+   * @param summary
+   *   Formatted summary string showing error location
    * @return
    *   Throwable (specific exception type from QueryExecutionErrors), or None if unknown
    */
   def convertErrorType(
       errorType: String,
       errorClass: String,
-      params: Map[String, Any]): Option[Throwable] = {
-
-    val context = null // Phase 1: No QueryContext support yet
+      params: Map[String, Any],
+      context: Array[QueryContext],
+      summary: String): Option[Throwable] = {
 
     errorType match {
       // ==================== Arithmetic Errors ====================
 
       case "DivideByZero" =>
-        Some(QueryExecutionErrors.divideByZeroError(context))
+        Some(QueryExecutionErrors.divideByZeroError(context.headOption.orNull))
 
       case "RemainderByZero" =>
         // SPARK 4.0 REMOVED remainderByZeroError - use generic arithmetic exception
@@ -64,7 +69,7 @@ trait ShimSparkErrorConverter {
             cause = null))
 
       case "IntervalDividedByZero" =>
-        Some(QueryExecutionErrors.intervalDividedByZeroError(context))
+        Some(QueryExecutionErrors.intervalDividedByZeroError(context.headOption.orNull))
 
       case "BinaryArithmeticOverflow" =>
         Some(
@@ -75,7 +80,7 @@ trait ShimSparkErrorConverter {
             params("functionName").toString))
 
       case "ArithmeticOverflow" =>
-        Some(QueryExecutionErrors.overflowInIntegralDivideError(context))
+        Some(QueryExecutionErrors.overflowInIntegralDivideError(context.headOption.orNull))
 
       case "NumericValueOutOfRange" =>
         val decimal = Decimal(params("value").toString)
@@ -84,7 +89,7 @@ trait ShimSparkErrorConverter {
             decimal,
             params("precision").toString.toInt,
             params("scale").toString.toInt,
-            context))
+            context.headOption.orNull))
 
       case "DatetimeOverflow" =>
         // Spark 4.0 doesn't have datetimeOverflowError - use generic arithmetic exception
@@ -101,17 +106,17 @@ trait ShimSparkErrorConverter {
           QueryExecutionErrors.invalidArrayIndexError(
             params("indexValue").toString.toInt,
             params("arraySize").toString.toInt,
-            context))
+            context.headOption.orNull))
 
       case "InvalidElementAtIndex" =>
         Some(
           QueryExecutionErrors.invalidElementAtIndexError(
             params("indexValue").toString.toInt,
             params("arraySize").toString.toInt,
-            context))
+            context.headOption.orNull))
 
       case "InvalidIndexOfZero" =>
-        Some(QueryExecutionErrors.invalidIndexOfZeroError(context))
+        Some(QueryExecutionErrors.invalidIndexOfZeroError(context.headOption.orNull))
 
       case "InvalidBitmapPosition" =>
         Some(
@@ -168,7 +173,9 @@ trait ShimSparkErrorConverter {
       case "CastInvalidValue" =>
         val str = UTF8String.fromString(params("value").toString)
         val targetType = getDataType(params("toType").toString)
-        Some(QueryExecutionErrors.invalidInputInCastToNumberError(targetType, str, context))
+        Some(
+          QueryExecutionErrors
+            .invalidInputInCastToNumberError(targetType, str, context.headOption.orNull))
 
       case "CastOverFlow" =>
         val fromType = getDataType(params("fromType").toString)
@@ -220,7 +227,7 @@ trait ShimSparkErrorConverter {
       // ==================== Subquery Errors ====================
 
       case "ScalarSubqueryTooManyRows" =>
-        Some(QueryExecutionErrors.multipleRowScalarSubqueryError(context))
+        Some(QueryExecutionErrors.multipleRowScalarSubqueryError(context.headOption.orNull))
 
       // ==================== Interval Arithmetic Errors ====================
 
@@ -228,10 +235,12 @@ trait ShimSparkErrorConverter {
         Some(
           QueryExecutionErrors.withSuggestionIntervalArithmeticOverflowError(
             params.get("functionName").map(_.toString).getOrElse(""),
-            context))
+            context.headOption.orNull))
 
       case "IntervalArithmeticOverflowWithoutSuggestion" =>
-        Some(QueryExecutionErrors.withoutSuggestionIntervalArithmeticOverflowError(context))
+        Some(
+          QueryExecutionErrors.withoutSuggestionIntervalArithmeticOverflowError(
+            context.headOption.orNull))
 
       case _ =>
         // Unknown error type - return None to trigger fallback

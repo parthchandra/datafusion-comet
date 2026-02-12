@@ -19,6 +19,8 @@
 
 package org.apache.spark.sql.comet.shims
 
+import org.apache.spark.QueryContext
+
 /**
  * Spark 3.x stub implementation for converting error types to Spark exceptions.
  *
@@ -38,14 +40,21 @@ trait ShimSparkErrorConverter {
    *   The Spark error class (e.g., "DIVIDE_BY_ZERO")
    * @param params
    *   Error parameters from JSON
+   * @param context
+   *   QueryContext array (ignored in Spark 3.x, for signature compatibility)
+   * @param summary
+   *   Formatted summary string (ignored in Spark 3.x, for signature compatibility)
    * @return
    *   Always None (triggers fallback to generic SparkException)
    */
   def convertErrorType(
       errorType: String,
       errorClass: String,
-      params: Map[String, Any]): Option[Throwable] = {
+      params: Map[String, Any],
+      context: Array[QueryContext],
+      summary: String): Option[Throwable] = {
     // Spark 3.x: Return None to use generic SparkException (Phase 1 behavior)
+    // context and summary parameters ignored for backward compatibility
     None
   }
 }
