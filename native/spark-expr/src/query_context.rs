@@ -28,7 +28,7 @@ use std::sync::Arc;
 ///
 /// Contains information about where an error occurred in a SQL query,
 /// including the full SQL text, line/column positions, and object context.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct QueryContext {
     /// Full SQL query text
     #[serde(rename = "sqlText")]

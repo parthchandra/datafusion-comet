@@ -387,10 +387,19 @@ impl PhysicalPlanner {
                 let child = self.create_expr(expr.child.as_ref().unwrap(), input_schema)?;
                 let datatype = to_arrow_datatype(expr.datatype.as_ref().unwrap());
                 let eval_mode = from_protobuf_eval_mode(expr.eval_mode)?;
+
+                // Look up query context from registry if expr_id is present
+                let query_context = spark_expr.expr_id.and_then(|expr_id| {
+                    let registry = crate::execution::context::get_global_query_context_registry();
+                    registry.get(expr_id)
+                });
+
                 Ok(Arc::new(Cast::new(
                     child,
                     datatype,
                     SparkCastOptions::new(eval_mode, &expr.timezone, expr.allow_incompat),
+                    spark_expr.expr_id,
+                    query_context,
                 )))
             }
             ExprStruct::CheckOverflow(expr) => {
@@ -398,10 +407,18 @@ impl PhysicalPlanner {
                 let data_type = to_arrow_datatype(expr.datatype.as_ref().unwrap());
                 let fail_on_error = expr.fail_on_error;
 
+                // Look up query context from registry if expr_id is present
+                let query_context = spark_expr.expr_id.and_then(|expr_id| {
+                    let registry = crate::execution::context::get_global_query_context_registry();
+                    registry.get(expr_id)
+                });
+
                 Ok(Arc::new(CheckOverflow::new(
                     child,
                     data_type,
                     fail_on_error,
+                    spark_expr.expr_id,
+                    query_context,
                 )))
             }
             ExprStruct::ScalarFunc(expr) => {
@@ -423,6 +440,8 @@ impl PhysicalPlanner {
                         func?,
                         DataType::Utf8,
                         SparkCastOptions::new_without_timezone(EvalMode::Try, true),
+                        None,
+                        None,
                     ))),
                     _ => func,
                 }
@@ -537,6 +556,7 @@ impl PhysicalPlanner {
                     Arc::clone(&child),
                     DataType::Utf8,
                     spark_cast_options,
+                    None, None,
                 ));
                 Ok(Arc::new(IfExpr::new(
                     Arc::new(IsNullExpr::new(child)),
@@ -706,17 +726,20 @@ impl PhysicalPlanner {
                     left,
                     DataType::Decimal256(p1, s1),
                     SparkCastOptions::new_without_timezone(EvalMode::Legacy, false),
+                    None, None,
                 ));
                 let right = Arc::new(Cast::new(
                     right,
                     DataType::Decimal256(p2, s2),
                     SparkCastOptions::new_without_timezone(EvalMode::Legacy, false),
+                    None, None,
                 ));
                 let child = Arc::new(BinaryExpr::new(left, op, right));
                 Ok(Arc::new(Cast::new(
                     child,
                     data_type,
                     SparkCastOptions::new_without_timezone(EvalMode::Legacy, false),
+                    None, None,
                 )))
             }
             (
@@ -2997,13 +3020,14 @@ fn create_case_expr(
                     Arc::clone(&x.1),
                     coerce_type.clone(),
                     cast_options.clone(),
+                    None, None,
                 ));
                 (Arc::clone(&x.0), t)
             })
             .collect::<Vec<(Arc<dyn PhysicalExpr>, Arc<dyn PhysicalExpr>)>>();
 
         let else_phy_expr: Option<Arc<dyn PhysicalExpr>> = else_expr.clone().map(|x| {
-            Arc::new(Cast::new(x, coerce_type.clone(), cast_options.clone()))
+            Arc::new(Cast::new(x, coerce_type.clone(), cast_options.clone(), None, None))
                 as Arc<dyn PhysicalExpr>
         });
         Ok(Arc::new(CaseExpr::try_new(

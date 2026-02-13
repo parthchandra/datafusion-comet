@@ -145,6 +145,8 @@ pub struct Cast {
     pub child: Arc<dyn PhysicalExpr>,
     pub data_type: DataType,
     pub cast_options: SparkCastOptions,
+    pub expr_id: Option<u64>,
+    pub query_context: Option<Arc<crate::QueryContext>>,
 }
 
 impl PartialEq for Cast {
@@ -868,11 +870,15 @@ impl Cast {
         child: Arc<dyn PhysicalExpr>,
         data_type: DataType,
         cast_options: SparkCastOptions,
+        expr_id: Option<u64>,
+        query_context: Option<Arc<crate::QueryContext>>,
     ) -> Self {
         Self {
             child,
             data_type,
             cast_options,
+            expr_id,
+            query_context,
         }
     }
 }
@@ -2736,7 +2742,23 @@ impl PhysicalExpr for Cast {
 
     fn evaluate(&self, batch: &RecordBatch) -> DataFusionResult<ColumnarValue> {
         let arg = self.child.evaluate(batch)?;
-        spark_cast(arg, &self.data_type, &self.cast_options)
+        let result = spark_cast(arg, &self.data_type, &self.cast_options);
+
+        // If there's an error and we have query_context, wrap it
+        match result {
+            Err(DataFusionError::External(e)) if self.query_context.is_some() => {
+                if let Some(spark_err) = e.downcast_ref::<crate::SparkError>() {
+                    let wrapped = crate::SparkErrorWithContext::with_context(
+                        spark_err.clone(),
+                        self.query_context.as_ref().unwrap().clone(),
+                    );
+                    Err(DataFusionError::External(Box::new(wrapped)))
+                } else {
+                    Err(DataFusionError::External(e))
+                }
+            }
+            other => other,
+        }
     }
 
     fn children(&self) -> Vec<&Arc<dyn PhysicalExpr>> {
@@ -2752,6 +2774,8 @@ impl PhysicalExpr for Cast {
                 Arc::clone(&children[0]),
                 self.data_type.clone(),
                 self.cast_options.clone(),
+                self.expr_id,
+                self.query_context.clone(),
             ))),
             _ => internal_err!("Cast should have exactly one child"),
         }

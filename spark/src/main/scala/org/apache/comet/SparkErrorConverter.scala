@@ -97,7 +97,7 @@ object SparkErrorConverter extends ShimSparkErrorConverter {
               originStopIndex = Some(ctx.stopIndex),
               originObjectType = ctx.objectType,
               originObjectName = ctx.objectName))
-        case None => null // No context available
+        case None => Array.empty[QueryContext] // No context available
       }
 
       val summary: String = errorJson.summary.orNull
