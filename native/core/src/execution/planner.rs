@@ -674,6 +674,7 @@ impl PhysicalPlanner {
 
     pub fn create_binary_expr(
         &self,
+        spark_expr: &Expr,
         left: &Expr,
         right: &Expr,
         return_type: Option<&spark_expression::DataType>,
@@ -682,6 +683,7 @@ impl PhysicalPlanner {
         eval_mode: EvalMode,
     ) -> Result<Arc<dyn PhysicalExpr>, ExecutionError> {
         self.create_binary_expr_with_options(
+            spark_expr,
             left,
             right,
             return_type,
@@ -695,6 +697,7 @@ impl PhysicalPlanner {
     #[allow(clippy::too_many_arguments)]
     pub fn create_binary_expr_with_options(
         &self,
+        spark_expr: &Expr,
         left: &Expr,
         right: &Expr,
         return_type: Option<&spark_expression::DataType>,
@@ -703,6 +706,12 @@ impl PhysicalPlanner {
         options: BinaryExprOptions,
         eval_mode: EvalMode,
     ) -> Result<Arc<dyn PhysicalExpr>, ExecutionError> {
+        // Look up query context from registry if expr_id is present
+        let query_context = spark_expr.expr_id.and_then(|expr_id| {
+            let registry = crate::execution::context::get_global_query_context_registry();
+            registry.get(expr_id)
+        });
+
         let left = self.create_expr(left, Arc::clone(&input_schema))?;
         let right = self.create_expr(right, Arc::clone(&input_schema))?;
         match (
@@ -793,13 +802,17 @@ impl PhysicalPlanner {
                         None,
                         eval_mode,
                     )?;
-                    Ok(Arc::new(ScalarFunctionExpr::new(
+                    let scalar_expr = Arc::new(ScalarFunctionExpr::new(
                         op_str,
                         fun_expr,
                         vec![left, right],
                         Arc::new(Field::new(op_str, data_type, true)),
                         Arc::new(ConfigOptions::default()),
-                    )))
+                    ));
+
+                    // Wrap with CheckedBinaryExpr to add query_context to errors
+                    use crate::execution::expressions::arithmetic::CheckedBinaryExpr;
+                    Ok(Arc::new(CheckedBinaryExpr::new(scalar_expr, query_context)))
                 } else {
                     Ok(Arc::new(BinaryExpr::new(left, op, right)))
                 }
