@@ -439,7 +439,10 @@ fn throw_exception(env: &mut JNIEnv, error: &CometError, backtrace: Option<Strin
 }
 
 /// Throws a CometQueryExecutionException with JSON-encoded SparkError
-fn throw_spark_error_as_json(env: &mut JNIEnv, spark_error: &SparkError) -> jni::errors::Result<()> {
+fn throw_spark_error_as_json(
+    env: &mut JNIEnv,
+    spark_error: &SparkError,
+) -> jni::errors::Result<()> {
     // Serialize error to JSON
     let json_message = spark_error.to_json();
 

@@ -221,15 +221,7 @@ mod tests {
 
     #[test]
     fn test_format_summary_without_object() {
-        let ctx = QueryContext::new(
-            "SELECT a/b FROM t".to_string(),
-            7,
-            9,
-            None,
-            None,
-            1,
-            7,
-        );
+        let ctx = QueryContext::new("SELECT a/b FROM t".to_string(), 7, 9, None, None, 1, 7);
 
         let summary = ctx.format_summary();
 
@@ -239,30 +231,14 @@ mod tests {
 
     #[test]
     fn test_fragment() {
-        let ctx = QueryContext::new(
-            "SELECT a/b FROM t".to_string(),
-            7,
-            9,
-            None,
-            None,
-            1,
-            7,
-        );
+        let ctx = QueryContext::new("SELECT a/b FROM t".to_string(), 7, 9, None, None, 1, 7);
 
         assert_eq!(ctx.fragment(), "a/b");
     }
 
     #[test]
     fn test_arc_string_sharing() {
-        let ctx1 = QueryContext::new(
-            "SELECT a/b FROM t".to_string(),
-            7,
-            9,
-            None,
-            None,
-            1,
-            7,
-        );
+        let ctx1 = QueryContext::new("SELECT a/b FROM t".to_string(), 7, 9, None, None, 1, 7);
 
         let ctx2 = ctx1.clone();
 
@@ -272,15 +248,7 @@ mod tests {
 
     #[test]
     fn test_json_with_optional_fields() {
-        let ctx = QueryContext::new(
-            "SELECT a/b FROM t".to_string(),
-            7,
-            9,
-            None,
-            None,
-            1,
-            7,
-        );
+        let ctx = QueryContext::new("SELECT a/b FROM t".to_string(), 7, 9, None, None, 1, 7);
 
         let json = serde_json::to_string(&ctx).unwrap();
 

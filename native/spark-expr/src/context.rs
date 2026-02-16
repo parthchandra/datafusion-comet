@@ -21,9 +21,6 @@
 //! information for expressions during execution, enabling rich error messages
 //! with SQL text and position information.
 
-
-
-
 use crate::QueryContext;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -118,15 +115,7 @@ mod tests {
     fn test_registry_register_and_get() {
         let registry = QueryContextRegistry::new();
 
-        let ctx = QueryContext::new(
-            "SELECT a/b FROM t".to_string(),
-            7,
-            9,
-            None,
-            None,
-            1,
-            7,
-        );
+        let ctx = QueryContext::new("SELECT a/b FROM t".to_string(), 7, 9, None, None, 1, 7);
 
         registry.register(1, ctx.clone());
 
@@ -145,15 +134,7 @@ mod tests {
     fn test_registry_clear() {
         let registry = QueryContextRegistry::new();
 
-        let ctx = QueryContext::new(
-            "SELECT a/b FROM t".to_string(),
-            7,
-            9,
-            None,
-            None,
-            1,
-            7,
-        );
+        let ctx = QueryContext::new("SELECT a/b FROM t".to_string(), 7, 9, None, None, 1, 7);
 
         registry.register(1, ctx);
         assert_eq!(registry.len(), 1);
@@ -163,6 +144,3 @@ mod tests {
         assert!(registry.is_empty());
     }
 }
-
-
-

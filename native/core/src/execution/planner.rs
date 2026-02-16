@@ -252,7 +252,9 @@ impl PhysicalPlanner {
         input_schema: SchemaRef,
     ) -> Result<Arc<dyn PhysicalExpr>, ExecutionError> {
         // Register QueryContext if present
-        if let (Some(expr_id), Some(ctx_proto)) = (spark_expr.expr_id, spark_expr.query_context.as_ref()) {
+        if let (Some(expr_id), Some(ctx_proto)) =
+            (spark_expr.expr_id, spark_expr.query_context.as_ref())
+        {
             // Deserialize QueryContext from protobuf
             let query_ctx = datafusion_comet_spark_expr::QueryContext::new(
                 ctx_proto.sql_text.clone(),
@@ -270,7 +272,8 @@ impl PhysicalPlanner {
             core_registry.register(expr_id, query_ctx.clone());
 
             // Spark-expr registry is used by aggregate expressions
-            let spark_expr_registry = datafusion_comet_spark_expr::get_global_query_context_registry();
+            let spark_expr_registry =
+                datafusion_comet_spark_expr::get_global_query_context_registry();
             spark_expr_registry.register(expr_id, query_ctx);
         }
 
@@ -561,7 +564,8 @@ impl PhysicalPlanner {
                     Arc::clone(&child),
                     DataType::Utf8,
                     spark_cast_options,
-                    None, None,
+                    None,
+                    None,
                 ));
                 Ok(Arc::new(IfExpr::new(
                     Arc::new(IsNullExpr::new(child)),
@@ -740,20 +744,23 @@ impl PhysicalPlanner {
                     left,
                     DataType::Decimal256(p1, s1),
                     SparkCastOptions::new_without_timezone(EvalMode::Legacy, false),
-                    None, None,
+                    None,
+                    None,
                 ));
                 let right = Arc::new(Cast::new(
                     right,
                     DataType::Decimal256(p2, s2),
                     SparkCastOptions::new_without_timezone(EvalMode::Legacy, false),
-                    None, None,
+                    None,
+                    None,
                 ));
                 let child = Arc::new(BinaryExpr::new(left, op, right));
                 Ok(Arc::new(Cast::new(
                     child,
                     data_type,
                     SparkCastOptions::new_without_timezone(EvalMode::Legacy, false),
-                    None, None,
+                    None,
+                    None,
                 )))
             }
             (
@@ -1820,7 +1827,9 @@ impl PhysicalPlanner {
         schema: SchemaRef,
     ) -> Result<AggregateFunctionExpr, ExecutionError> {
         // Register QueryContext if present
-        if let (Some(expr_id), Some(ctx_proto)) = (spark_expr.expr_id, spark_expr.query_context.as_ref()) {
+        if let (Some(expr_id), Some(ctx_proto)) =
+            (spark_expr.expr_id, spark_expr.query_context.as_ref())
+        {
             // Deserialize QueryContext from protobuf
             let query_ctx = datafusion_comet_spark_expr::QueryContext::new(
                 ctx_proto.sql_text.clone(),
@@ -1838,7 +1847,8 @@ impl PhysicalPlanner {
             core_registry.register(expr_id, query_ctx.clone());
 
             // Spark-expr registry is used by aggregate expressions
-            let spark_expr_registry = datafusion_comet_spark_expr::get_global_query_context_registry();
+            let spark_expr_registry =
+                datafusion_comet_spark_expr::get_global_query_context_registry();
             spark_expr_registry.register(expr_id, query_ctx);
         }
 
@@ -1892,8 +1902,11 @@ impl PhysicalPlanner {
                 let builder = match datatype {
                     DataType::Decimal128(_, _) => {
                         let eval_mode = from_protobuf_eval_mode(expr.eval_mode)?;
-                        let func =
-                            AggregateUDF::new_from_impl(SumDecimal::try_new(datatype, eval_mode, spark_expr.expr_id)?);
+                        let func = AggregateUDF::new_from_impl(SumDecimal::try_new(
+                            datatype,
+                            eval_mode,
+                            spark_expr.expr_id,
+                        )?);
                         AggregateExprBuilder::new(Arc::new(func), vec![child])
                     }
                     DataType::Int8 | DataType::Int16 | DataType::Int32 | DataType::Int64 => {
@@ -1926,8 +1939,12 @@ impl PhysicalPlanner {
                 let builder = match datatype {
                     DataType::Decimal128(_, _) => {
                         let eval_mode = from_protobuf_eval_mode(expr.eval_mode)?;
-                        let func =
-                            AggregateUDF::new_from_impl(AvgDecimal::new(datatype, input_datatype, eval_mode, spark_expr.expr_id));
+                        let func = AggregateUDF::new_from_impl(AvgDecimal::new(
+                            datatype,
+                            input_datatype,
+                            eval_mode,
+                            spark_expr.expr_id,
+                        ));
                         AggregateExprBuilder::new(Arc::new(func), vec![child])
                     }
                     _ => {
@@ -3062,15 +3079,21 @@ fn create_case_expr(
                     Arc::clone(&x.1),
                     coerce_type.clone(),
                     cast_options.clone(),
-                    None, None,
+                    None,
+                    None,
                 ));
                 (Arc::clone(&x.0), t)
             })
             .collect::<Vec<(Arc<dyn PhysicalExpr>, Arc<dyn PhysicalExpr>)>>();
 
         let else_phy_expr: Option<Arc<dyn PhysicalExpr>> = else_expr.clone().map(|x| {
-            Arc::new(Cast::new(x, coerce_type.clone(), cast_options.clone(), None, None))
-                as Arc<dyn PhysicalExpr>
+            Arc::new(Cast::new(
+                x,
+                coerce_type.clone(),
+                cast_options.clone(),
+                None,
+                None,
+            )) as Arc<dyn PhysicalExpr>
         });
         Ok(Arc::new(CaseExpr::try_new(
             None,

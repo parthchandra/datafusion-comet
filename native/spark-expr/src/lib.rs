@@ -19,9 +19,9 @@
 // The lint makes easier for code reader/reviewer separate references clones from more heavyweight ones
 #![deny(clippy::clone_on_ref_ptr)]
 
+mod context;
 mod error;
 mod query_context;
-mod context;
 
 pub mod kernels;
 pub use kernels::temporal::date_trunc_dyn;
@@ -72,14 +72,13 @@ pub use comet_scalar_funcs::{
     create_comet_physical_fun, create_comet_physical_fun_with_eval_mode,
     register_all_comet_functions,
 };
+pub use context::get_global_query_context_registry;
 pub use csv_funcs::*;
 pub use datetime_funcs::{
     SparkDateDiff, SparkDateTrunc, SparkHour, SparkMakeDate, SparkMinute, SparkSecond,
     SparkUnixTimestamp, TimestampTruncExpr,
 };
 pub use error::{SparkError, SparkErrorWithContext, SparkResult};
-pub use query_context::QueryContext;
-pub use context::get_global_query_context_registry;
 pub use hash_funcs::*;
 pub use json_funcs::{FromJson, ToJson};
 pub use math_funcs::{
@@ -87,6 +86,7 @@ pub use math_funcs::{
     spark_decimal_integral_div, spark_floor, spark_make_decimal, spark_round, spark_unhex,
     spark_unscaled_value, CheckOverflow, NegativeExpr, NormalizeNaNAndZero,
 };
+pub use query_context::QueryContext;
 pub use string_funcs::*;
 
 /// Spark supports three evaluation modes when evaluating expressions, which affect

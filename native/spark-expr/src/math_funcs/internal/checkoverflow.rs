@@ -63,7 +63,13 @@ impl PartialEq for CheckOverflow {
 }
 
 impl CheckOverflow {
-    pub fn new(child: Arc<dyn PhysicalExpr>, data_type: DataType, fail_on_error: bool, expr_id: Option<u64>, query_context: Option<Arc<crate::QueryContext>>) -> Self {
+    pub fn new(
+        child: Arc<dyn PhysicalExpr>,
+        data_type: DataType,
+        fail_on_error: bool,
+        expr_id: Option<u64>,
+        query_context: Option<Arc<crate::QueryContext>>,
+    ) -> Self {
         Self {
             child,
             data_type,
@@ -165,7 +171,8 @@ impl PhysicalExpr for CheckOverflow {
                     .map(|a| Arc::new(a) as ArrayRef)
                     .map_err(|e| {
                         if matches!(e, arrow::error::ArrowError::InvalidArgumentError(_))
-                            && e.to_string().contains("too large to store in a Decimal128") {
+                            && e.to_string().contains("too large to store in a Decimal128")
+                        {
                             // Fallback error handling
                             let spark_error = SparkError::NumericValueOutOfRange {
                                 value: "overflow".to_string(),
@@ -176,7 +183,10 @@ impl PhysicalExpr for CheckOverflow {
                             // Wrap with query_context if present
                             if let Some(ctx) = &self.query_context {
                                 DataFusionError::External(Box::new(
-                                    crate::SparkErrorWithContext::with_context(spark_error, ctx.clone())
+                                    crate::SparkErrorWithContext::with_context(
+                                        spark_error,
+                                        ctx.clone(),
+                                    ),
                                 ))
                             } else {
                                 DataFusionError::External(Box::new(spark_error))

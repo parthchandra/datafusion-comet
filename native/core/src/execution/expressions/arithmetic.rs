@@ -153,7 +153,7 @@ macro_rules! arithmetic_expr_builder {
                 let eval_mode =
                     $crate::execution::planner::from_protobuf_eval_mode(expr.eval_mode)?;
                 planner.create_binary_expr(
-                    spark_expr,  // Pass the full spark_expr for query_context lookup
+                    spark_expr, // Pass the full spark_expr for query_context lookup
                     expr.left.as_ref().unwrap(),
                     expr.right.as_ref().unwrap(),
                     expr.return_type.as_ref(),
@@ -211,7 +211,7 @@ impl ExpressionBuilder for IntegralDivideBuilder {
         let expr = extract_expr!(spark_expr, IntegralDivide);
         let eval_mode = from_protobuf_eval_mode(expr.eval_mode)?;
         planner.create_binary_expr_with_options(
-            spark_expr,  // Pass the full spark_expr for query_context lookup
+            spark_expr, // Pass the full spark_expr for query_context lookup
             expr.left.as_ref().unwrap(),
             expr.right.as_ref().unwrap(),
             expr.return_type.as_ref(),

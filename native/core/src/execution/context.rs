@@ -114,15 +114,7 @@ mod tests {
     fn test_registry_register_and_get() {
         let registry = QueryContextRegistry::new();
 
-        let ctx = QueryContext::new(
-            "SELECT a/b FROM t".to_string(),
-            7,
-            9,
-            None,
-            None,
-            1,
-            7,
-        );
+        let ctx = QueryContext::new("SELECT a/b FROM t".to_string(), 7, 9, None, None, 1, 7);
 
         registry.register(1, ctx.clone());
 
@@ -141,15 +133,7 @@ mod tests {
     fn test_registry_clear() {
         let registry = QueryContextRegistry::new();
 
-        let ctx = QueryContext::new(
-            "SELECT a/b FROM t".to_string(),
-            7,
-            9,
-            None,
-            None,
-            1,
-            7,
-        );
+        let ctx = QueryContext::new("SELECT a/b FROM t".to_string(), 7, 9, None, None, 1, 7);
 
         registry.register(1, ctx);
         assert_eq!(registry.len(), 1);
@@ -163,25 +147,9 @@ mod tests {
     fn test_registry_replace() {
         let registry = QueryContextRegistry::new();
 
-        let ctx1 = QueryContext::new(
-            "SELECT a FROM t".to_string(),
-            7,
-            7,
-            None,
-            None,
-            1,
-            7,
-        );
+        let ctx1 = QueryContext::new("SELECT a FROM t".to_string(), 7, 7, None, None, 1, 7);
 
-        let ctx2 = QueryContext::new(
-            "SELECT b FROM t".to_string(),
-            7,
-            7,
-            None,
-            None,
-            1,
-            7,
-        );
+        let ctx2 = QueryContext::new("SELECT b FROM t".to_string(), 7, 7, None, None, 1, 7);
 
         registry.register(1, ctx1);
         registry.register(1, ctx2);
@@ -194,15 +162,7 @@ mod tests {
     fn test_arc_sharing() {
         let registry = QueryContextRegistry::new();
 
-        let ctx = QueryContext::new(
-            "SELECT a/b FROM t".to_string(),
-            7,
-            9,
-            None,
-            None,
-            1,
-            7,
-        );
+        let ctx = QueryContext::new("SELECT a/b FROM t".to_string(), 7, 9, None, None, 1, 7);
 
         registry.register(1, ctx);
 
@@ -217,15 +177,7 @@ mod tests {
     fn test_global_registry() {
         let registry = get_global_query_context_registry();
 
-        let ctx = QueryContext::new(
-            "SELECT a/b FROM t".to_string(),
-            7,
-            9,
-            None,
-            None,
-            1,
-            7,
-        );
+        let ctx = QueryContext::new("SELECT a/b FROM t".to_string(), 7, 9, None, None, 1, 7);
 
         registry.register(42, ctx);
 

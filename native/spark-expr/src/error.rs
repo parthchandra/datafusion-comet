@@ -58,7 +58,6 @@ pub enum SparkError {
     CannotParseDecimal,
 
     // ==================== Arithmetic Errors ====================
-
     #[error("[ARITHMETIC_OVERFLOW] {from_type} overflow. If necessary set \"spark.sql.ansi.enabled\" to \"false\" to bypass this error.")]
     ArithmeticOverflow { from_type: String },
 
@@ -80,9 +79,7 @@ pub enum SparkError {
     },
 
     #[error("[INTERVAL_ARITHMETIC_OVERFLOW] Interval arithmetic overflow. Use `{function_name}` to tolerate overflow and return NULL instead. If necessary set \"spark.sql.ansi.enabled\" to \"false\" to bypass this error.")]
-    IntervalArithmeticOverflowWithSuggestion {
-        function_name: String,
-    },
+    IntervalArithmeticOverflowWithSuggestion { function_name: String },
 
     #[error("[INTERVAL_ARITHMETIC_OVERFLOW] Interval arithmetic overflow. If necessary set \"spark.sql.ansi.enabled\" to \"false\" to bypass this error.")]
     IntervalArithmeticOverflowWithoutSuggestion,
@@ -91,18 +88,11 @@ pub enum SparkError {
     DatetimeOverflow,
 
     // ==================== Array Index Errors ====================
-
     #[error("[INVALID_ARRAY_INDEX] The index {index_value} is out of bounds. The array has {array_size} elements. Use the SQL function `get(array, index)` or `try_element_at` instead. If necessary set \"spark.sql.ansi.enabled\" to \"false\" to bypass this error.")]
-    InvalidArrayIndex {
-        index_value: i32,
-        array_size: i32,
-    },
+    InvalidArrayIndex { index_value: i32, array_size: i32 },
 
     #[error("[INVALID_ARRAY_INDEX_IN_ELEMENT_AT] The index {index_value} is out of bounds. The array has {array_size} elements. If necessary set \"spark.sql.ansi.enabled\" to \"false\" to bypass this error.")]
-    InvalidElementAtIndex {
-        index_value: i32,
-        array_size: i32,
-    },
+    InvalidElementAtIndex { index_value: i32, array_size: i32 },
 
     #[error("[INVALID_BITMAP_POSITION] The bit position {bit_position} is out of bounds. The bitmap has {bitmap_num_bytes} bytes ({bitmap_num_bits} bits).")]
     InvalidBitmapPosition {
@@ -115,11 +105,8 @@ pub enum SparkError {
     InvalidIndexOfZero,
 
     // ==================== Map/Collection Errors ====================
-
     #[error("[DUPLICATED_MAP_KEY] Cannot create map with duplicate keys: {key}.")]
-    DuplicatedMapKey {
-        key: String,
-    },
+    DuplicatedMapKey { key: String },
 
     #[error("[NULL_MAP_KEY] Cannot use null as map key.")]
     NullMapKey,
@@ -128,10 +115,7 @@ pub enum SparkError {
     MapKeyValueDiffSizes,
 
     #[error("[EXCEED_LIMIT_LENGTH] Cannot create a map with {size} elements which exceeds the limit {max_size}.")]
-    ExceedMapSizeLimit {
-        size: i32,
-        max_size: i32,
-    },
+    ExceedMapSizeLimit { size: i32, max_size: i32 },
 
     #[error("[COLLECTION_SIZE_LIMIT_EXCEEDED] Cannot create array with {num_elements} elements which exceeds the limit {max_elements}.")]
     CollectionSizeLimitExceeded {
@@ -140,20 +124,13 @@ pub enum SparkError {
     },
 
     // ==================== Null Validation Errors ====================
-
     #[error("[NOT_NULL_ASSERT_VIOLATION] The field `{field_name}` cannot be null.")]
-    NotNullAssertViolation {
-        field_name: String,
-    },
+    NotNullAssertViolation { field_name: String },
 
     #[error("[VALUE_IS_NULL] The value of field `{field_name}` at row {row_index} is null.")]
-    ValueIsNull {
-        field_name: String,
-        row_index: i32,
-    },
+    ValueIsNull { field_name: String, row_index: i32 },
 
     // ==================== DateTime Errors ====================
-
     #[error("[CANNOT_PARSE_TIMESTAMP] Cannot parse timestamp: {message}. Try using `{suggested_func}` instead.")]
     CannotParseTimestamp {
         message: String,
@@ -161,19 +138,13 @@ pub enum SparkError {
     },
 
     #[error("[INVALID_FRACTION_OF_SECOND] The fraction of second {value} is invalid. Valid values are in the range [0, 60]. If necessary set \"spark.sql.ansi.enabled\" to \"false\" to bypass this error.")]
-    InvalidFractionOfSecond {
-        value: f64,
-    },
+    InvalidFractionOfSecond { value: f64 },
 
     // ==================== String/UTF8 Errors ====================
-
     #[error("[INVALID_UTF8_STRING] Invalid UTF-8 string: {hex_string}.")]
-    InvalidUtf8String {
-        hex_string: String,
-    },
+    InvalidUtf8String { hex_string: String },
 
     // ==================== Function Parameter Errors ====================
-
     #[error("[UNEXPECTED_POSITIVE_VALUE] The {parameter_name} parameter must be less than or equal to 0. The actual value is {actual_value}.")]
     UnexpectedPositiveValue {
         parameter_name: String,
@@ -187,7 +158,6 @@ pub enum SparkError {
     },
 
     // ==================== Regex Errors ====================
-
     #[error("[INVALID_PARAMETER_VALUE] Invalid regex group index {group_index} in function `{function_name}`. Group count is {group_count}.")]
     InvalidRegexGroupIndex {
         function_name: String,
@@ -196,19 +166,14 @@ pub enum SparkError {
     },
 
     // ==================== Unsupported Operation Errors ====================
-
     #[error("[DATATYPE_CANNOT_ORDER] Cannot order by type: {data_type}.")]
-    DatatypeCannotOrder {
-        data_type: String,
-    },
+    DatatypeCannotOrder { data_type: String },
 
     // ==================== Subquery Errors ====================
-
     #[error("[SCALAR_SUBQUERY_TOO_MANY_ROWS] Scalar subquery returned more than one row.")]
     ScalarSubqueryTooManyRows,
 
     // ==================== Generic Errors ====================
-
     #[error("ArrowError: {0}.")]
     Arrow(Arc<ArrowError>),
 
@@ -241,7 +206,10 @@ impl SparkError {
             Ok(json) => json,
             Err(e) => {
                 // Fallback if serialization fails
-                format!("{{\"errorType\":\"SerializationError\",\"message\":\"{}\"}}", e)
+                format!(
+                    "{{\"errorType\":\"SerializationError\",\"message\":\"{}\"}}",
+                    e
+                )
             }
         }
     }
@@ -259,8 +227,12 @@ impl SparkError {
             SparkError::RemainderByZero => "RemainderByZero",
             SparkError::IntervalDividedByZero => "IntervalDividedByZero",
             SparkError::BinaryArithmeticOverflow { .. } => "BinaryArithmeticOverflow",
-            SparkError::IntervalArithmeticOverflowWithSuggestion { .. } => "IntervalArithmeticOverflowWithSuggestion",
-            SparkError::IntervalArithmeticOverflowWithoutSuggestion => "IntervalArithmeticOverflowWithoutSuggestion",
+            SparkError::IntervalArithmeticOverflowWithSuggestion { .. } => {
+                "IntervalArithmeticOverflowWithSuggestion"
+            }
+            SparkError::IntervalArithmeticOverflowWithoutSuggestion => {
+                "IntervalArithmeticOverflowWithoutSuggestion"
+            }
             SparkError::DatetimeOverflow => "DatetimeOverflow",
             SparkError::InvalidArrayIndex { .. } => "InvalidArrayIndex",
             SparkError::InvalidElementAtIndex { .. } => "InvalidElementAtIndex",
@@ -289,14 +261,22 @@ impl SparkError {
     /// Extract parameters as JSON value
     fn params_as_json(&self) -> serde_json::Value {
         match self {
-            SparkError::CastInvalidValue { value, from_type, to_type } => {
+            SparkError::CastInvalidValue {
+                value,
+                from_type,
+                to_type,
+            } => {
                 serde_json::json!({
                     "value": value,
                     "fromType": from_type,
                     "toType": to_type,
                 })
             }
-            SparkError::NumericValueOutOfRange { value, precision, scale } => {
+            SparkError::NumericValueOutOfRange {
+                value,
+                precision,
+                scale,
+            } => {
                 serde_json::json!({
                     "value": value,
                     "precision": precision,
@@ -308,7 +288,11 @@ impl SparkError {
                     "value": value,
                 })
             }
-            SparkError::CastOverFlow { value, from_type, to_type } => {
+            SparkError::CastOverFlow {
+                value,
+                from_type,
+                to_type,
+            } => {
                 serde_json::json!({
                     "value": value,
                     "fromType": from_type,
@@ -320,7 +304,12 @@ impl SparkError {
                     "fromType": from_type,
                 })
             }
-            SparkError::BinaryArithmeticOverflow { value1, symbol, value2, function_name } => {
+            SparkError::BinaryArithmeticOverflow {
+                value1,
+                symbol,
+                value2,
+                function_name,
+            } => {
                 serde_json::json!({
                     "value1": value1,
                     "symbol": symbol,
@@ -333,19 +322,29 @@ impl SparkError {
                     "functionName": function_name,
                 })
             }
-            SparkError::InvalidArrayIndex { index_value, array_size } => {
+            SparkError::InvalidArrayIndex {
+                index_value,
+                array_size,
+            } => {
                 serde_json::json!({
                     "indexValue": index_value,
                     "arraySize": array_size,
                 })
             }
-            SparkError::InvalidElementAtIndex { index_value, array_size } => {
+            SparkError::InvalidElementAtIndex {
+                index_value,
+                array_size,
+            } => {
                 serde_json::json!({
                     "indexValue": index_value,
                     "arraySize": array_size,
                 })
             }
-            SparkError::InvalidBitmapPosition { bit_position, bitmap_num_bytes, bitmap_num_bits } => {
+            SparkError::InvalidBitmapPosition {
+                bit_position,
+                bitmap_num_bytes,
+                bitmap_num_bits,
+            } => {
                 serde_json::json!({
                     "bitPosition": bit_position,
                     "bitmapNumBytes": bitmap_num_bytes,
@@ -363,7 +362,10 @@ impl SparkError {
                     "maxSize": max_size,
                 })
             }
-            SparkError::CollectionSizeLimitExceeded { num_elements, max_elements } => {
+            SparkError::CollectionSizeLimitExceeded {
+                num_elements,
+                max_elements,
+            } => {
                 serde_json::json!({
                     "numElements": num_elements,
                     "maxElements": max_elements,
@@ -374,13 +376,19 @@ impl SparkError {
                     "fieldName": field_name,
                 })
             }
-            SparkError::ValueIsNull { field_name, row_index } => {
+            SparkError::ValueIsNull {
+                field_name,
+                row_index,
+            } => {
                 serde_json::json!({
                     "fieldName": field_name,
                     "rowIndex": row_index,
                 })
             }
-            SparkError::CannotParseTimestamp { message, suggested_func } => {
+            SparkError::CannotParseTimestamp {
+                message,
+                suggested_func,
+            } => {
                 serde_json::json!({
                     "message": message,
                     "suggestedFunc": suggested_func,
@@ -396,19 +404,29 @@ impl SparkError {
                     "hexString": hex_string,
                 })
             }
-            SparkError::UnexpectedPositiveValue { parameter_name, actual_value } => {
+            SparkError::UnexpectedPositiveValue {
+                parameter_name,
+                actual_value,
+            } => {
                 serde_json::json!({
                     "parameterName": parameter_name,
                     "actualValue": actual_value,
                 })
             }
-            SparkError::UnexpectedNegativeValue { parameter_name, actual_value } => {
+            SparkError::UnexpectedNegativeValue {
+                parameter_name,
+                actual_value,
+            } => {
                 serde_json::json!({
                     "parameterName": parameter_name,
                     "actualValue": actual_value,
                 })
             }
-            SparkError::InvalidRegexGroupIndex { function_name, group_count, group_index } => {
+            SparkError::InvalidRegexGroupIndex {
+                function_name,
+                group_count,
+                group_index,
+            } => {
                 serde_json::json!({
                     "functionName": function_name,
                     "groupCount": group_count,
@@ -651,7 +669,10 @@ impl SparkErrorWithContext {
         }
 
         serde_json::to_string(&json_obj).unwrap_or_else(|e| {
-            format!("{{\"errorType\":\"SerializationError\",\"message\":\"{}\"}}", e)
+            format!(
+                "{{\"errorType\":\"SerializationError\",\"message\":\"{}\"}}",
+                e
+            )
         })
     }
 }
@@ -816,10 +837,20 @@ mod tests {
     #[test]
     fn test_error_class_mapping() {
         // Test that error_class() returns the correct error class
-        assert_eq!(SparkError::DivideByZero.error_class(), Some("DIVIDE_BY_ZERO"));
-        assert_eq!(SparkError::RemainderByZero.error_class(), Some("REMAINDER_BY_ZERO"));
         assert_eq!(
-            SparkError::InvalidArrayIndex { index_value: 0, array_size: 0 }.error_class(),
+            SparkError::DivideByZero.error_class(),
+            Some("DIVIDE_BY_ZERO")
+        );
+        assert_eq!(
+            SparkError::RemainderByZero.error_class(),
+            Some("REMAINDER_BY_ZERO")
+        );
+        assert_eq!(
+            SparkError::InvalidArrayIndex {
+                index_value: 0,
+                array_size: 0
+            }
+            .error_class(),
             Some("INVALID_ARRAY_INDEX")
         );
         assert_eq!(SparkError::NullMapKey.error_class(), Some("NULL_MAP_KEY"));
@@ -833,7 +864,11 @@ mod tests {
             "org/apache/spark/SparkArithmeticException"
         );
         assert_eq!(
-            SparkError::InvalidArrayIndex { index_value: 0, array_size: 0 }.exception_class(),
+            SparkError::InvalidArrayIndex {
+                index_value: 0,
+                array_size: 0
+            }
+            .exception_class(),
             "org/apache/spark/SparkArrayIndexOutOfBoundsException"
         );
         assert_eq!(

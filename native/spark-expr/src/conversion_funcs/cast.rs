@@ -1218,15 +1218,18 @@ fn cast_boolean_to_decimal(array: &ArrayRef, precision: u8, scale: i8) -> SparkR
         .collect();
 
     // Convert Arrow decimal overflow errors to SparkError
-    let decimal_array = result.with_precision_and_scale(precision, scale).map_err(|e| {
-        if matches!(e, arrow::error::ArrowError::InvalidArgumentError(_))
-            && e.to_string().contains("too large to store in a Decimal128") {
-            // Use the scaled value as it's the only non-zero value that could overflow
-            crate::error::decimal_overflow_error(scaled_val, precision, scale).into()
-        } else {
-            SparkError::Arrow(Arc::new(e))
-        }
-    })?;
+    let decimal_array = result
+        .with_precision_and_scale(precision, scale)
+        .map_err(|e| {
+            if matches!(e, arrow::error::ArrowError::InvalidArgumentError(_))
+                && e.to_string().contains("too large to store in a Decimal128")
+            {
+                // Use the scaled value as it's the only non-zero value that could overflow
+                crate::error::decimal_overflow_error(scaled_val, precision, scale).into()
+            } else {
+                SparkError::Arrow(Arc::new(e))
+            }
+        })?;
 
     Ok(Arc::new(decimal_array))
 }
@@ -1784,7 +1787,8 @@ where
             .with_precision_and_scale(precision, scale)
             .map_err(|e| {
                 if matches!(e, arrow::error::ArrowError::InvalidArgumentError(_))
-                    && e.to_string().contains("too large to store in a Decimal128") {
+                    && e.to_string().contains("too large to store in a Decimal128")
+                {
                     // Extract the overflowing value from the cast_array
                     // In practice, this should be caught above, but handle as a fallback
                     SparkError::NumericValueOutOfRange {
@@ -1875,7 +1879,8 @@ where
             .with_precision_and_scale(precision, scale)
             .map_err(|e| {
                 if matches!(e, arrow::error::ArrowError::InvalidArgumentError(_))
-                    && e.to_string().contains("too large to store in a Decimal128") {
+                    && e.to_string().contains("too large to store in a Decimal128")
+                {
                     // Fallback error handling - should be caught above in most cases
                     SparkError::NumericValueOutOfRange {
                         value: "overflow".to_string(),
@@ -2409,7 +2414,8 @@ fn cast_string_to_decimal128_impl(
             .with_precision_and_scale(precision, scale)
             .map_err(|e| {
                 if matches!(e, arrow::error::ArrowError::InvalidArgumentError(_))
-                    && e.to_string().contains("too large to store in a Decimal128") {
+                    && e.to_string().contains("too large to store in a Decimal128")
+                {
                     // Fallback error handling
                     SparkError::NumericValueOutOfRange {
                         value: "overflow".to_string(),
@@ -2473,7 +2479,8 @@ fn cast_string_to_decimal256_impl(
             .with_precision_and_scale(precision, scale)
             .map_err(|e| {
                 if matches!(e, arrow::error::ArrowError::InvalidArgumentError(_))
-                    && e.to_string().contains("too large to store in a Decimal128") {
+                    && e.to_string().contains("too large to store in a Decimal128")
+                {
                     // Fallback error handling
                     SparkError::NumericValueOutOfRange {
                         value: "overflow".to_string(),

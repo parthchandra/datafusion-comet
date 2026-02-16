@@ -67,7 +67,12 @@ pub struct AvgDecimal {
 
 impl AvgDecimal {
     /// Create a new AVG aggregate function
-    pub fn new(result_type: DataType, sum_type: DataType, eval_mode: EvalMode, expr_id: Option<u64>) -> Self {
+    pub fn new(
+        result_type: DataType,
+        sum_type: DataType,
+        eval_mode: EvalMode,
+        expr_id: Option<u64>,
+    ) -> Self {
         Self {
             signature: Signature::user_defined(Immutable),
             result_data_type: result_type,
@@ -194,7 +199,16 @@ struct AvgDecimalAccumulator {
 }
 
 impl AvgDecimalAccumulator {
-    pub fn new(sum_scale: i8, sum_precision: u8, target_precision: u8, target_scale: i8, eval_mode: EvalMode, expr_id: Option<u64>) -> Self {
+    pub fn new(
+        sum_scale: i8,
+        sum_precision: u8,
+        target_precision: u8,
+        target_scale: i8,
+        eval_mode: EvalMode,
+        expr_id: Option<u64>,
+    ) -> Self {
+        eprintln!("DEBUG AvgDecimalAccumulator::new: sum_scale={}, sum_precision={}, target_precision={}, target_scale={}, eval_mode={:?}, expr_id={:?}",
+            sum_scale, sum_precision, target_precision, target_scale, eval_mode, expr_id);
         Self {
             sum: None,
             count: 0,
@@ -210,7 +224,10 @@ impl AvgDecimalAccumulator {
     }
 
     /// Wrap a SparkError with QueryContext if expr_id is available
-    fn wrap_error_with_context(&self, error: crate::SparkError) -> datafusion::common::DataFusionError {
+    fn wrap_error_with_context(
+        &self,
+        error: crate::SparkError,
+    ) -> datafusion::common::DataFusionError {
         if let Some(expr_id) = self.expr_id {
             let registry = crate::context::get_global_query_context_registry();
             if let Some(query_ctx) = registry.get(expr_id) {
@@ -223,14 +240,27 @@ impl AvgDecimalAccumulator {
 
     fn update_single(&mut self, values: &Decimal128Array, idx: usize) -> Result<()> {
         let v = unsafe { values.value_unchecked(idx) };
+        eprintln!(
+            "DEBUG update_single: idx={}, value={}, current_sum={:?}, sum_precision={}",
+            idx, v, self.sum, self.sum_precision
+        );
+
         let (new_sum, is_overflow) = match self.sum {
             Some(sum) => sum.overflowing_add(v),
             None => (v, false),
         };
 
+        eprintln!(
+            "DEBUG update_single: new_sum={}, is_overflow={}, is_valid_precision={}",
+            new_sum,
+            is_overflow,
+            is_valid_decimal_precision(new_sum, self.sum_precision)
+        );
+
         if is_overflow || !is_valid_decimal_precision(new_sum, self.sum_precision) {
             // Overflow: set to null. Error will be thrown during evaluate in ANSI mode.
             // This matches Spark's DecimalAddNoOverflowCheck behavior.
+            eprintln!("DEBUG update_single: OVERFLOW DETECTED! Setting is_not_null=false");
             self.is_not_null = false;
             return Ok(());
         }
@@ -241,6 +271,7 @@ impl AvgDecimalAccumulator {
             self.count = new_count;
         } else {
             // Count overflow: set to null. Error will be thrown during evaluate in ANSI mode.
+            eprintln!("DEBUG update_single: COUNT OVERFLOW! Setting is_not_null=false");
             self.is_not_null = false;
             return Ok(());
         }
@@ -263,9 +294,17 @@ impl Accumulator for AvgDecimalAccumulator {
     }
 
     fn update_batch(&mut self, values: &[ArrayRef]) -> Result<()> {
+        eprintln!(
+            "DEBUG update_batch: values.len()={}, is_empty={}, is_not_null={}",
+            values[0].len(),
+            self.is_empty,
+            self.is_not_null
+        );
+
         if !self.is_empty && !self.is_not_null {
             // This means there's a overflow in decimal, so we will just skip the rest
             // of the computation
+            eprintln!("DEBUG update_batch: Skipping because already overflowed");
             return Ok(());
         }
 
@@ -273,6 +312,10 @@ impl Accumulator for AvgDecimalAccumulator {
         let data = values.as_primitive::<Decimal128Type>();
 
         self.is_empty = self.is_empty && values.len() == values.null_count();
+        eprintln!(
+            "DEBUG update_batch: after null check, is_empty={}",
+            self.is_empty
+        );
 
         if values.null_count() == 0 {
             for i in 0..data.len() {
@@ -290,27 +333,74 @@ impl Accumulator for AvgDecimalAccumulator {
     }
 
     fn merge_batch(&mut self, states: &[ArrayRef]) -> Result<()> {
+        eprintln!(
+            "DEBUG merge_batch: before merge - sum={:?}, count={}, is_empty={}, is_not_null={}",
+            self.sum, self.count, self.is_empty, self.is_not_null
+        );
+
+        let partial_sums = states[0].as_primitive::<Decimal128Type>();
+        let partial_counts = states[1].as_primitive::<Int64Type>();
+
+        // Update is_empty: if any partial state has data, we're not empty
+        if self.is_empty {
+            self.is_empty = partial_counts.len() == partial_counts.null_count();
+        }
+
         // counts are summed
-        self.count += sum(states[1].as_primitive::<Int64Type>()).unwrap_or_default();
+        self.count += sum(partial_counts).unwrap_or_default();
 
         // sums are summed
-        if let Some(x) = sum(states[0].as_primitive::<Decimal128Type>()) {
+        if let Some(x) = sum(partial_sums) {
+            eprintln!(
+                "DEBUG merge_batch: merging partial_sum={}, current_sum={:?}",
+                x, self.sum
+            );
             let v = self.sum.get_or_insert(0);
             let (result, overflowed) = v.overflowing_add(x);
-            if overflowed {
-                // Set to None if overflow happens
+
+            eprintln!(
+                "DEBUG merge_batch: merged_sum={}, is_overflow={}, is_valid_precision={}",
+                result,
+                overflowed,
+                is_valid_decimal_precision(result, self.sum_precision)
+            );
+
+            if overflowed || !is_valid_decimal_precision(result, self.sum_precision) {
+                eprintln!(
+                    "DEBUG merge_batch: OVERFLOW DETECTED during merge! Setting is_not_null=false"
+                );
+                // Overflow during merge: set to null, error will be thrown during evaluate in ANSI mode
+                self.is_not_null = false;
                 self.sum = None;
             } else {
                 *v = result;
             }
         }
+
+        eprintln!(
+            "DEBUG merge_batch: after merge - sum={:?}, count={}, is_empty={}, is_not_null={}",
+            self.sum, self.count, self.is_empty, self.is_not_null
+        );
         Ok(())
     }
 
     fn evaluate(&mut self) -> Result<ScalarValue> {
+        eprintln!(
+            "DEBUG evaluate: sum={:?}, is_empty={}, is_not_null={}, count={}, eval_mode={:?}",
+            self.sum, self.is_empty, self.is_not_null, self.count, self.eval_mode
+        );
+
         // Check for overflow during sum accumulation in ANSI mode.
         // This matches Spark's DecimalDivideWithOverflowCheck behavior.
         if self.sum.is_none() && !self.is_empty && self.eval_mode == EvalMode::Ansi {
+            eprintln!("DEBUG evaluate: THROWING OVERFLOW ERROR!");
+            let error = arithmetic_overflow_error("decimal");
+            return Err(self.wrap_error_with_context(error));
+        }
+
+        // Also check if is_not_null is false (indicates overflow)
+        if !self.is_not_null && self.count > 0 && self.eval_mode == EvalMode::Ansi {
+            eprintln!("DEBUG evaluate: THROWING OVERFLOW ERROR (is_not_null=false)!");
             let error = arithmetic_overflow_error("decimal");
             return Err(self.wrap_error_with_context(error));
         }
@@ -322,6 +412,8 @@ impl Accumulator for AvgDecimalAccumulator {
         let result = self
             .sum
             .map(|v| avg(v, self.count as i128, target_min, target_max, scaler));
+
+        eprintln!("DEBUG evaluate: result={:?}", result);
 
         match result {
             Some(value) => Ok(make_decimal128(
@@ -397,7 +489,10 @@ impl AvgDecimalGroupsAccumulator {
     }
 
     /// Wrap a SparkError with QueryContext if expr_id is available
-    fn wrap_error_with_context(&self, error: crate::SparkError) -> datafusion::common::DataFusionError {
+    fn wrap_error_with_context(
+        &self,
+        error: crate::SparkError,
+    ) -> datafusion::common::DataFusionError {
         if let Some(expr_id) = self.expr_id {
             let registry = crate::context::get_global_query_context_registry();
             if let Some(query_ctx) = registry.get(expr_id) {

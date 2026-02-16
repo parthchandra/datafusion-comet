@@ -46,7 +46,11 @@ pub struct SumDecimal {
 }
 
 impl SumDecimal {
-    pub fn try_new(data_type: DataType, eval_mode: EvalMode, expr_id: Option<u64>) -> DFResult<Self> {
+    pub fn try_new(
+        data_type: DataType,
+        eval_mode: EvalMode,
+        expr_id: Option<u64>,
+    ) -> DFResult<Self> {
         let (precision, scale) = match data_type {
             DataType::Decimal128(p, s) => (p, s),
             _ => {
@@ -336,7 +340,12 @@ struct SumDecimalGroupsAccumulator {
 }
 
 impl SumDecimalGroupsAccumulator {
-    fn new(result_type: DataType, precision: u8, eval_mode: EvalMode, expr_id: Option<u64>) -> Self {
+    fn new(
+        result_type: DataType,
+        precision: u8,
+        eval_mode: EvalMode,
+        expr_id: Option<u64>,
+    ) -> Self {
         Self {
             sum: Vec::new(),
             is_empty: Vec::new(),

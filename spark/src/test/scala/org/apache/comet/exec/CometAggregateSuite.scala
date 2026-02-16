@@ -1914,6 +1914,28 @@ class CometAggregateSuite extends CometTestBase with AdaptiveSparkPlanHelper {
     }
   }
 
+  test(
+    "SPARK-39190,SPARK-39208,SPARK-39210: Query context of decimal overflow error should " +
+      "be serialized to executors when WSCG is off") {
+    withSQLConf(
+      SQLConf.WHOLESTAGE_CODEGEN_ENABLED.key -> "false",
+      SQLConf.ANSI_ENABLED.key -> "true") {
+      withTable("t") {
+        sql("create table t(d decimal(38, 0)) using parquet")
+        sql("insert into t values (6e37BD),(6e37BD)")
+        Seq(
+          // "select d / 0.1 from t",
+          // "select sum(d) from t",
+          "select avg(d) from t").foreach { query =>
+          val msg = intercept[ArithmeticException] {
+            sql(query).collect()
+          }.getMessage
+          assert(msg.contains(query))
+        }
+      }
+    }
+  }
+
   protected def checkSparkAnswerAndNumOfAggregates(query: String, numAggregates: Int): Unit = {
     val df = sql(query)
     checkSparkAnswer(df)
