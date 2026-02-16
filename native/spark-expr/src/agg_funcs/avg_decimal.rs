@@ -145,6 +145,8 @@ impl AggregateUDFImpl for AvgDecimal {
                     *target_scale,
                     *sum_precision,
                     *sum_scale,
+                    self.eval_mode,
+                    self.expr_id,
                 )))
             }
             _ => not_impl_err!(
@@ -227,11 +229,8 @@ impl AvgDecimalAccumulator {
         };
 
         if is_overflow || !is_valid_decimal_precision(new_sum, self.sum_precision) {
-            // Overflow: throw error in ANSI mode or set to null
-            if self.eval_mode == EvalMode::Ansi {
-                let error = arithmetic_overflow_error("decimal");
-                return Err(self.wrap_error_with_context(error));
-            }
+            // Overflow: set to null. Error will be thrown during evaluate in ANSI mode.
+            // This matches Spark's DecimalAddNoOverflowCheck behavior.
             self.is_not_null = false;
             return Ok(());
         }
@@ -241,10 +240,7 @@ impl AvgDecimalAccumulator {
         if let Some(new_count) = self.count.checked_add(1) {
             self.count = new_count;
         } else {
-            if self.eval_mode == EvalMode::Ansi {
-                let error = arithmetic_overflow_error("decimal");
-                return Err(self.wrap_error_with_context(error));
-            }
+            // Count overflow: set to null. Error will be thrown during evaluate in ANSI mode.
             self.is_not_null = false;
             return Ok(());
         }
@@ -312,6 +308,13 @@ impl Accumulator for AvgDecimalAccumulator {
     }
 
     fn evaluate(&mut self) -> Result<ScalarValue> {
+        // Check for overflow during sum accumulation in ANSI mode.
+        // This matches Spark's DecimalDivideWithOverflowCheck behavior.
+        if self.sum.is_none() && !self.is_empty && self.eval_mode == EvalMode::Ansi {
+            let error = arithmetic_overflow_error("decimal");
+            return Err(self.wrap_error_with_context(error));
+        }
+
         let scaler = 10_i128.pow(self.target_scale.saturating_sub(self.sum_scale) as u32);
         let target_min = MIN_DECIMAL128_FOR_EACH_PRECISION[self.target_precision as usize];
         let target_max = MAX_DECIMAL128_FOR_EACH_PRECISION[self.target_precision as usize];
@@ -360,6 +363,11 @@ struct AvgDecimalGroupsAccumulator {
     /// This is input_precision + 10 to be consistent with Spark
     sum_precision: u8,
     sum_scale: i8,
+
+    /// Evaluation mode for error handling
+    eval_mode: EvalMode,
+    /// Optional expression ID for query context lookup during error creation
+    expr_id: Option<u64>,
 }
 
 impl AvgDecimalGroupsAccumulator {
@@ -370,6 +378,8 @@ impl AvgDecimalGroupsAccumulator {
         target_scale: i8,
         sum_precision: u8,
         sum_scale: i8,
+        eval_mode: EvalMode,
+        expr_id: Option<u64>,
     ) -> Self {
         Self {
             is_not_null: BooleanBufferBuilder::new(0),
@@ -381,19 +391,35 @@ impl AvgDecimalGroupsAccumulator {
             sum_scale,
             counts: vec![],
             sums: vec![],
+            eval_mode,
+            expr_id,
         }
     }
 
+    /// Wrap a SparkError with QueryContext if expr_id is available
+    fn wrap_error_with_context(&self, error: crate::SparkError) -> datafusion::common::DataFusionError {
+        if let Some(expr_id) = self.expr_id {
+            let registry = crate::context::get_global_query_context_registry();
+            if let Some(query_ctx) = registry.get(expr_id) {
+                let wrapped = SparkErrorWithContext::with_context(error, query_ctx);
+                return datafusion::common::DataFusionError::External(Box::new(wrapped));
+            }
+        }
+        datafusion::common::DataFusionError::from(error)
+    }
+
     #[inline]
-    fn update_single(&mut self, group_index: usize, value: i128) {
+    fn update_single(&mut self, group_index: usize, value: i128) -> Result<()> {
         let (new_sum, is_overflow) = self.sums[group_index].overflowing_add(value);
         self.counts[group_index] += 1;
         self.sums[group_index] = new_sum;
 
         if unlikely(is_overflow || !is_valid_decimal_precision(new_sum, self.sum_precision)) {
-            // Overflow: set buffer accumulator to null
+            // Overflow: set to null. Error will be thrown during evaluate in ANSI mode.
+            // This matches Spark's DecimalAddNoOverflowCheck behavior.
             self.is_not_null.set_bit(group_index, false);
         }
+        Ok(())
     }
 }
 
@@ -424,14 +450,14 @@ impl GroupsAccumulator for AvgDecimalGroupsAccumulator {
         let iter = group_indices.iter().zip(data.iter());
         if values.null_count() == 0 {
             for (&group_index, &value) in iter {
-                self.update_single(group_index, value);
+                self.update_single(group_index, value)?;
             }
         } else {
             for (idx, (&group_index, &value)) in iter.enumerate() {
                 if values.is_null(idx) {
                     continue;
                 }
-                self.update_single(group_index, value);
+                self.update_single(group_index, value)?;
             }
         }
         Ok(())
@@ -458,9 +484,25 @@ impl GroupsAccumulator for AvgDecimalGroupsAccumulator {
         // update sums
         self.sums.resize(total_num_groups, 0);
         let iter2 = group_indices.iter().zip(partial_sums.values().iter());
-        for (&group_index, &new_value) in iter2 {
-            let sum = &mut self.sums[group_index];
-            *sum = sum.add_wrapping(new_value);
+        for (idx, (&group_index, &new_value)) in iter2.enumerate() {
+            // Check if partial sum is null (indicates overflow in that partition)
+            if partial_sums.is_null(idx) {
+                self.is_not_null.set_bit(group_index, false);
+                continue;
+            }
+
+            let sum = self.sums[group_index];
+            let (new_sum, is_overflow) = sum.overflowing_add(new_value);
+
+            if is_overflow || !is_valid_decimal_precision(new_sum, self.sum_precision) {
+                if self.eval_mode == EvalMode::Ansi {
+                    let error = arithmetic_overflow_error("decimal");
+                    return Err(self.wrap_error_with_context(error));
+                }
+                self.is_not_null.set_bit(group_index, false);
+            } else {
+                self.sums[group_index] = new_sum;
+            }
         }
 
         ensure_bit_capacity(&mut self.is_not_null, total_num_groups);
@@ -489,6 +531,13 @@ impl GroupsAccumulator for AvgDecimalGroupsAccumulator {
         let target_max = MAX_DECIMAL128_FOR_EACH_PRECISION[self.target_precision as usize];
 
         for (is_not_null, (sum, count)) in nulls.into_iter().zip(iter) {
+            // Check for overflow during sum accumulation in ANSI mode.
+            // This matches Spark's DecimalDivideWithOverflowCheck behavior.
+            if !is_not_null && count > 0 && self.eval_mode == EvalMode::Ansi {
+                let error = arithmetic_overflow_error("decimal");
+                return Err(self.wrap_error_with_context(error));
+            }
+
             if !is_not_null || count == 0 {
                 builder.append_null();
                 continue;
