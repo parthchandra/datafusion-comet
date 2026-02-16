@@ -140,6 +140,12 @@ message AggExpr {
     Correlation correlation = 15;
     BloomFilterAgg bloomFilterAgg = 16;
   }
+
+  // Optional QueryContext for error reporting (contains SQL text and position)
+  optional QueryContext query_context = 90;
+
+  // Unique expression ID for context lookup during error creation
+  optional uint64 expr_id = 91;
 }
 
 enum StatisticsType {

@@ -1945,6 +1945,7 @@ dependencies = [
  "futures",
  "hex",
  "num",
+ "once_cell",
  "rand 0.10.0",
  "regex",
  "serde",
