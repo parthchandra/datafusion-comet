@@ -70,6 +70,8 @@ fn criterion_benchmark(c: &mut Criterion) {
         let comet_avg_decimal = Arc::new(AggregateUDF::new_from_impl(AvgDecimal::new(
             DataType::Decimal128(38, 10),
             DataType::Decimal128(38, 10),
+            datafusion_comet_spark_expr::EvalMode::Legacy,
+            None,
         )));
         b.to_async(&rt).iter(|| {
             black_box(agg_test(

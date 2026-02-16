@@ -264,9 +264,14 @@ impl PhysicalPlanner {
                 ctx_proto.start_position,
             );
 
-            // Register in global registry
-            let registry = crate::execution::context::get_global_query_context_registry();
-            registry.register(expr_id, query_ctx);
+            // Register in both registries (core and spark-expr)
+            // Core registry is used by binary expressions
+            let core_registry = crate::execution::context::get_global_query_context_registry();
+            core_registry.register(expr_id, query_ctx.clone());
+
+            // Spark-expr registry is used by aggregate expressions
+            let spark_expr_registry = datafusion_comet_spark_expr::get_global_query_context_registry();
+            spark_expr_registry.register(expr_id, query_ctx);
         }
 
         // Try to use the modular registry first - this automatically handles any registered expression types
@@ -1814,6 +1819,29 @@ impl PhysicalPlanner {
         spark_expr: &AggExpr,
         schema: SchemaRef,
     ) -> Result<AggregateFunctionExpr, ExecutionError> {
+        // Register QueryContext if present
+        if let (Some(expr_id), Some(ctx_proto)) = (spark_expr.expr_id, spark_expr.query_context.as_ref()) {
+            // Deserialize QueryContext from protobuf
+            let query_ctx = datafusion_comet_spark_expr::QueryContext::new(
+                ctx_proto.sql_text.clone(),
+                ctx_proto.start_index,
+                ctx_proto.stop_index,
+                ctx_proto.object_type.clone(),
+                ctx_proto.object_name.clone(),
+                ctx_proto.line,
+                ctx_proto.start_position,
+            );
+
+            // Register in both registries (core and spark-expr)
+            // Core registry is used by binary expressions
+            let core_registry = crate::execution::context::get_global_query_context_registry();
+            core_registry.register(expr_id, query_ctx.clone());
+
+            // Spark-expr registry is used by aggregate expressions
+            let spark_expr_registry = datafusion_comet_spark_expr::get_global_query_context_registry();
+            spark_expr_registry.register(expr_id, query_ctx);
+        }
+
         match spark_expr.expr_struct.as_ref().unwrap() {
             AggExprStruct::Count(expr) => {
                 assert!(!expr.children.is_empty());
@@ -1865,7 +1893,7 @@ impl PhysicalPlanner {
                     DataType::Decimal128(_, _) => {
                         let eval_mode = from_protobuf_eval_mode(expr.eval_mode)?;
                         let func =
-                            AggregateUDF::new_from_impl(SumDecimal::try_new(datatype, eval_mode)?);
+                            AggregateUDF::new_from_impl(SumDecimal::try_new(datatype, eval_mode, spark_expr.expr_id)?);
                         AggregateExprBuilder::new(Arc::new(func), vec![child])
                     }
                     DataType::Int8 | DataType::Int16 | DataType::Int32 | DataType::Int64 => {
@@ -1897,8 +1925,9 @@ impl PhysicalPlanner {
 
                 let builder = match datatype {
                     DataType::Decimal128(_, _) => {
+                        let eval_mode = from_protobuf_eval_mode(expr.eval_mode)?;
                         let func =
-                            AggregateUDF::new_from_impl(AvgDecimal::new(datatype, input_datatype));
+                            AggregateUDF::new_from_impl(AvgDecimal::new(datatype, input_datatype, eval_mode, spark_expr.expr_id));
                         AggregateExprBuilder::new(Arc::new(func), vec![child])
                     }
                     _ => {

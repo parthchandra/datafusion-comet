@@ -21,6 +21,7 @@
 
 mod error;
 mod query_context;
+mod context;
 
 pub mod kernels;
 pub use kernels::temporal::date_trunc_dyn;
@@ -78,6 +79,7 @@ pub use datetime_funcs::{
 };
 pub use error::{SparkError, SparkErrorWithContext, SparkResult};
 pub use query_context::QueryContext;
+pub use context::get_global_query_context_registry;
 pub use hash_funcs::*;
 pub use json_funcs::{FromJson, ToJson};
 pub use math_funcs::{

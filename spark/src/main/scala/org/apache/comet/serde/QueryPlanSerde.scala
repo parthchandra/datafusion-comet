@@ -473,7 +473,7 @@ object QueryPlanSerde extends Logging with CometExprShim {
 
     val fn = aggExpr.aggregateFunction
     val cometExpr = aggrSerdeMap.get(fn.getClass)
-    cometExpr match {
+    val protoAggExprOpt = cometExpr match {
       case Some(handler) =>
         val aggHandler = handler.asInstanceOf[CometAggregateExpressionSerde[AggregateFunction]]
         val exprConfName = aggHandler.getExprConfigName(fn)
@@ -519,6 +519,16 @@ object QueryPlanSerde extends Logging with CometExprShim {
           s"unsupported Spark aggregate function: ${fn.prettyName}",
           fn.children: _*)
         None
+    }
+
+    // Attach QueryContext and expr_id to the aggregate expression
+    protoAggExprOpt.map { protoAggExpr =>
+      val builder = protoAggExpr.toBuilder
+      builder.setExprId(nextExprId())
+      extractQueryContext(fn).foreach { ctx =>
+        builder.setQueryContext(ctx)
+      }
+      builder.build()
     }
   }
 

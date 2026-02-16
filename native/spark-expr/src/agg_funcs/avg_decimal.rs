@@ -31,6 +31,7 @@ use datafusion::physical_expr::expressions::format_state_name;
 use std::{any::Any, sync::Arc};
 
 use crate::utils::{build_bool_state, is_valid_decimal_precision, unlikely};
+use crate::{arithmetic_overflow_error, EvalMode, SparkErrorWithContext};
 use arrow::array::ArrowNativeTypeOp;
 use arrow::datatypes::{
     DECIMAL128_MAX_PRECISION, DECIMAL128_MAX_SCALE, MAX_DECIMAL128_FOR_EACH_PRECISION,
@@ -60,15 +61,19 @@ pub struct AvgDecimal {
     signature: Signature,
     sum_data_type: DataType,
     result_data_type: DataType,
+    eval_mode: EvalMode,
+    expr_id: Option<u64>,
 }
 
 impl AvgDecimal {
     /// Create a new AVG aggregate function
-    pub fn new(result_type: DataType, sum_type: DataType) -> Self {
+    pub fn new(result_type: DataType, sum_type: DataType, eval_mode: EvalMode, expr_id: Option<u64>) -> Self {
         Self {
             signature: Signature::user_defined(Immutable),
             result_data_type: result_type,
             sum_data_type: sum_type,
+            eval_mode,
+            expr_id,
         }
     }
 }
@@ -87,6 +92,8 @@ impl AggregateUDFImpl for AvgDecimal {
                     *sum_precision,
                     *target_precision,
                     *target_scale,
+                    self.eval_mode,
+                    self.expr_id,
                 )))
             }
             _ => not_impl_err!(
@@ -180,10 +187,12 @@ struct AvgDecimalAccumulator {
     sum_precision: u8,
     target_precision: u8,
     target_scale: i8,
+    eval_mode: EvalMode,
+    expr_id: Option<u64>,
 }
 
 impl AvgDecimalAccumulator {
-    pub fn new(sum_scale: i8, sum_precision: u8, target_precision: u8, target_scale: i8) -> Self {
+    pub fn new(sum_scale: i8, sum_precision: u8, target_precision: u8, target_scale: i8, eval_mode: EvalMode, expr_id: Option<u64>) -> Self {
         Self {
             sum: None,
             count: 0,
@@ -193,10 +202,24 @@ impl AvgDecimalAccumulator {
             sum_precision,
             target_precision,
             target_scale,
+            eval_mode,
+            expr_id,
         }
     }
 
-    fn update_single(&mut self, values: &Decimal128Array, idx: usize) {
+    /// Wrap a SparkError with QueryContext if expr_id is available
+    fn wrap_error_with_context(&self, error: crate::SparkError) -> datafusion::common::DataFusionError {
+        if let Some(expr_id) = self.expr_id {
+            let registry = crate::context::get_global_query_context_registry();
+            if let Some(query_ctx) = registry.get(expr_id) {
+                let wrapped = SparkErrorWithContext::with_context(error, query_ctx);
+                return datafusion::common::DataFusionError::External(Box::new(wrapped));
+            }
+        }
+        datafusion::common::DataFusionError::from(error)
+    }
+
+    fn update_single(&mut self, values: &Decimal128Array, idx: usize) -> Result<()> {
         let v = unsafe { values.value_unchecked(idx) };
         let (new_sum, is_overflow) = match self.sum {
             Some(sum) => sum.overflowing_add(v),
@@ -204,9 +227,13 @@ impl AvgDecimalAccumulator {
         };
 
         if is_overflow || !is_valid_decimal_precision(new_sum, self.sum_precision) {
-            // Overflow: set buffer accumulator to null
+            // Overflow: throw error in ANSI mode or set to null
+            if self.eval_mode == EvalMode::Ansi {
+                let error = arithmetic_overflow_error("decimal");
+                return Err(self.wrap_error_with_context(error));
+            }
             self.is_not_null = false;
-            return;
+            return Ok(());
         }
 
         self.sum = Some(new_sum);
@@ -214,11 +241,16 @@ impl AvgDecimalAccumulator {
         if let Some(new_count) = self.count.checked_add(1) {
             self.count = new_count;
         } else {
+            if self.eval_mode == EvalMode::Ansi {
+                let error = arithmetic_overflow_error("decimal");
+                return Err(self.wrap_error_with_context(error));
+            }
             self.is_not_null = false;
-            return;
+            return Ok(());
         }
 
         self.is_not_null = true;
+        Ok(())
     }
 }
 
@@ -248,14 +280,14 @@ impl Accumulator for AvgDecimalAccumulator {
 
         if values.null_count() == 0 {
             for i in 0..data.len() {
-                self.update_single(data, i);
+                self.update_single(data, i)?;
             }
         } else {
             for i in 0..data.len() {
                 if data.is_null(i) {
                     continue;
                 }
-                self.update_single(data, i);
+                self.update_single(data, i)?;
             }
         }
         Ok(())
