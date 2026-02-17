@@ -72,7 +72,7 @@ pub use comet_scalar_funcs::{
     create_comet_physical_fun, create_comet_physical_fun_with_eval_mode,
     register_all_comet_functions,
 };
-pub use context::get_global_query_context_registry;
+pub use context::{create_query_context_registry, QueryContextRegistry};
 pub use csv_funcs::*;
 pub use datetime_funcs::{
     SparkDateDiff, SparkDateTrunc, SparkHour, SparkMakeDate, SparkMinute, SparkSecond,

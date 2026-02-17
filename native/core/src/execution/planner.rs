@@ -163,6 +163,7 @@ pub struct PhysicalPlanner {
     exec_context_id: i64,
     partition: i32,
     session_ctx: Arc<SessionContext>,
+    query_context_registry: Arc<datafusion_comet_spark_expr::QueryContextRegistry>,
 }
 
 impl Default for PhysicalPlanner {
@@ -177,6 +178,7 @@ impl PhysicalPlanner {
             exec_context_id: TEST_EXEC_CONTEXT_ID,
             session_ctx,
             partition,
+            query_context_registry: datafusion_comet_spark_expr::create_query_context_registry(),
         }
     }
 
@@ -185,6 +187,7 @@ impl PhysicalPlanner {
             exec_context_id,
             partition: self.partition,
             session_ctx: Arc::clone(&self.session_ctx),
+            query_context_registry: Arc::clone(&self.query_context_registry),
         }
     }
 
@@ -266,15 +269,9 @@ impl PhysicalPlanner {
                 ctx_proto.start_position,
             );
 
-            // Register in both registries (core and spark-expr)
-            // Core registry is used by binary expressions
-            let core_registry = crate::execution::context::get_global_query_context_registry();
-            core_registry.register(expr_id, query_ctx.clone());
-
-            // Spark-expr registry is used by aggregate expressions
-            let spark_expr_registry =
-                datafusion_comet_spark_expr::get_global_query_context_registry();
-            spark_expr_registry.register(expr_id, query_ctx);
+            // Register query context for error reporting
+            let registry = &self.query_context_registry;
+            registry.register(expr_id, query_ctx);
         }
 
         // Try to use the modular registry first - this automatically handles any registered expression types
@@ -398,7 +395,7 @@ impl PhysicalPlanner {
 
                 // Look up query context from registry if expr_id is present
                 let query_context = spark_expr.expr_id.and_then(|expr_id| {
-                    let registry = crate::execution::context::get_global_query_context_registry();
+                    let registry = &self.query_context_registry;
                     registry.get(expr_id)
                 });
 
@@ -417,7 +414,7 @@ impl PhysicalPlanner {
 
                 // Look up query context from registry if expr_id is present
                 let query_context = spark_expr.expr_id.and_then(|expr_id| {
-                    let registry = crate::execution::context::get_global_query_context_registry();
+                    let registry = &self.query_context_registry;
                     registry.get(expr_id)
                 });
 
@@ -717,7 +714,7 @@ impl PhysicalPlanner {
     ) -> Result<Arc<dyn PhysicalExpr>, ExecutionError> {
         // Look up query context from registry if expr_id is present
         let query_context = spark_expr.expr_id.and_then(|expr_id| {
-            let registry = crate::execution::context::get_global_query_context_registry();
+            let registry = &self.query_context_registry;
             registry.get(expr_id)
         });
 
@@ -1841,15 +1838,9 @@ impl PhysicalPlanner {
                 ctx_proto.start_position,
             );
 
-            // Register in both registries (core and spark-expr)
-            // Core registry is used by binary expressions
-            let core_registry = crate::execution::context::get_global_query_context_registry();
-            core_registry.register(expr_id, query_ctx.clone());
-
-            // Spark-expr registry is used by aggregate expressions
-            let spark_expr_registry =
-                datafusion_comet_spark_expr::get_global_query_context_registry();
-            spark_expr_registry.register(expr_id, query_ctx);
+            // Register query context for error reporting
+            let registry = &self.query_context_registry;
+            registry.register(expr_id, query_ctx);
         }
 
         match spark_expr.expr_struct.as_ref().unwrap() {
@@ -1906,6 +1897,7 @@ impl PhysicalPlanner {
                             datatype,
                             eval_mode,
                             spark_expr.expr_id,
+                            Arc::clone(&self.query_context_registry),
                         )?);
                         AggregateExprBuilder::new(Arc::new(func), vec![child])
                     }
@@ -1944,6 +1936,7 @@ impl PhysicalPlanner {
                             input_datatype,
                             eval_mode,
                             spark_expr.expr_id,
+                            Arc::clone(&self.query_context_registry),
                         ));
                         AggregateExprBuilder::new(Arc::new(func), vec![child])
                     }

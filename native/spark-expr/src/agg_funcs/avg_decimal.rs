@@ -56,13 +56,35 @@ fn avg_return_type(_name: &str, data_type: &DataType) -> Result<DataType> {
 }
 
 /// AVG aggregate expression
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone)]
 pub struct AvgDecimal {
     signature: Signature,
     sum_data_type: DataType,
     result_data_type: DataType,
     eval_mode: EvalMode,
     expr_id: Option<u64>,
+    registry: Arc<crate::QueryContextRegistry>,
+}
+
+// Manually implement PartialEq, Eq, and Hash excluding the registry field
+impl PartialEq for AvgDecimal {
+    fn eq(&self, other: &Self) -> bool {
+        self.sum_data_type == other.sum_data_type
+            && self.result_data_type == other.result_data_type
+            && self.eval_mode == other.eval_mode
+            && self.expr_id == other.expr_id
+    }
+}
+
+impl Eq for AvgDecimal {}
+
+impl std::hash::Hash for AvgDecimal {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.sum_data_type.hash(state);
+        self.result_data_type.hash(state);
+        self.eval_mode.hash(state);
+        self.expr_id.hash(state);
+    }
 }
 
 impl AvgDecimal {
@@ -72,6 +94,7 @@ impl AvgDecimal {
         sum_type: DataType,
         eval_mode: EvalMode,
         expr_id: Option<u64>,
+        registry: Arc<crate::QueryContextRegistry>,
     ) -> Self {
         Self {
             signature: Signature::user_defined(Immutable),
@@ -79,6 +102,7 @@ impl AvgDecimal {
             sum_data_type: sum_type,
             eval_mode,
             expr_id,
+            registry,
         }
     }
 }
@@ -99,6 +123,7 @@ impl AggregateUDFImpl for AvgDecimal {
                     *target_scale,
                     self.eval_mode,
                     self.expr_id,
+                    Arc::clone(&self.registry),
                 )))
             }
             _ => not_impl_err!(
@@ -152,6 +177,7 @@ impl AggregateUDFImpl for AvgDecimal {
                     *sum_scale,
                     self.eval_mode,
                     self.expr_id,
+                    Arc::clone(&self.registry),
                 )))
             }
             _ => not_impl_err!(
@@ -196,6 +222,7 @@ struct AvgDecimalAccumulator {
     target_scale: i8,
     eval_mode: EvalMode,
     expr_id: Option<u64>,
+    registry: Arc<crate::QueryContextRegistry>,
 }
 
 impl AvgDecimalAccumulator {
@@ -206,6 +233,7 @@ impl AvgDecimalAccumulator {
         target_scale: i8,
         eval_mode: EvalMode,
         expr_id: Option<u64>,
+        registry: Arc<crate::QueryContextRegistry>,
     ) -> Self {
         eprintln!("DEBUG AvgDecimalAccumulator::new: sum_scale={}, sum_precision={}, target_precision={}, target_scale={}, eval_mode={:?}, expr_id={:?}",
             sum_scale, sum_precision, target_precision, target_scale, eval_mode, expr_id);
@@ -220,6 +248,7 @@ impl AvgDecimalAccumulator {
             target_scale,
             eval_mode,
             expr_id,
+            registry,
         }
     }
 
@@ -229,8 +258,7 @@ impl AvgDecimalAccumulator {
         error: crate::SparkError,
     ) -> datafusion::common::DataFusionError {
         if let Some(expr_id) = self.expr_id {
-            let registry = crate::context::get_global_query_context_registry();
-            if let Some(query_ctx) = registry.get(expr_id) {
+            if let Some(query_ctx) = self.registry.get(expr_id) {
                 let wrapped = SparkErrorWithContext::with_context(error, query_ctx);
                 return datafusion::common::DataFusionError::External(Box::new(wrapped));
             }
@@ -460,6 +488,8 @@ struct AvgDecimalGroupsAccumulator {
     eval_mode: EvalMode,
     /// Optional expression ID for query context lookup during error creation
     expr_id: Option<u64>,
+    /// Session-scoped query context registry for error reporting
+    registry: Arc<crate::QueryContextRegistry>,
 }
 
 impl AvgDecimalGroupsAccumulator {
@@ -472,6 +502,7 @@ impl AvgDecimalGroupsAccumulator {
         sum_scale: i8,
         eval_mode: EvalMode,
         expr_id: Option<u64>,
+        registry: Arc<crate::QueryContextRegistry>,
     ) -> Self {
         Self {
             is_not_null: BooleanBufferBuilder::new(0),
@@ -485,6 +516,7 @@ impl AvgDecimalGroupsAccumulator {
             sums: vec![],
             eval_mode,
             expr_id,
+            registry,
         }
     }
 
@@ -494,8 +526,7 @@ impl AvgDecimalGroupsAccumulator {
         error: crate::SparkError,
     ) -> datafusion::common::DataFusionError {
         if let Some(expr_id) = self.expr_id {
-            let registry = crate::context::get_global_query_context_registry();
-            if let Some(query_ctx) = registry.get(expr_id) {
+            if let Some(query_ctx) = self.registry.get(expr_id) {
                 let wrapped = SparkErrorWithContext::with_context(error, query_ctx);
                 return datafusion::common::DataFusionError::External(Box::new(wrapped));
             }

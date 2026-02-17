@@ -92,19 +92,12 @@ impl Default for QueryContextRegistry {
     }
 }
 
-// Thread-safe singleton for global access
-// Note: In the future, this should be replaced with SessionState extension
-use once_cell::sync::Lazy;
-
-static GLOBAL_REGISTRY: Lazy<Arc<QueryContextRegistry>> =
-    Lazy::new(|| Arc::new(QueryContextRegistry::new()));
-
-/// Get the global QueryContextRegistry instance.
+/// Create a new session-scoped QueryContextRegistry.
 ///
-/// This provides access to the singleton registry. In a future enhancement,
-/// this should be replaced with per-session registries stored in SessionState.
-pub fn get_global_query_context_registry() -> Arc<QueryContextRegistry> {
-    Arc::clone(&GLOBAL_REGISTRY)
+/// This should be called once per SessionContext during plan creation
+/// and passed to expressions that need query context for error reporting.
+pub fn create_query_context_registry() -> Arc<QueryContextRegistry> {
+    Arc::new(QueryContextRegistry::new())
 }
 
 #[cfg(test)]

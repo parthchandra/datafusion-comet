@@ -72,6 +72,7 @@ fn criterion_benchmark(c: &mut Criterion) {
             DataType::Decimal128(38, 10),
             datafusion_comet_spark_expr::EvalMode::Legacy,
             None,
+            datafusion_comet_spark_expr::create_query_context_registry(),
         )));
         b.to_async(&rt).iter(|| {
             black_box(agg_test(
@@ -99,7 +100,13 @@ fn criterion_benchmark(c: &mut Criterion) {
 
     group.bench_function("sum_decimal_comet", |b| {
         let comet_sum_decimal = Arc::new(AggregateUDF::new_from_impl(
-            SumDecimal::try_new(DataType::Decimal128(38, 10), EvalMode::Legacy, None).unwrap(),
+            SumDecimal::try_new(
+                DataType::Decimal128(38, 10),
+                EvalMode::Legacy,
+                None,
+                datafusion_comet_spark_expr::create_query_context_registry(),
+            )
+            .unwrap(),
         ));
         b.to_async(&rt).iter(|| {
             black_box(agg_test(

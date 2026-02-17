@@ -181,17 +181,6 @@ pub enum SparkError {
     Internal(String),
 }
 
-/// Metadata for creating Spark exceptions with proper error classes and parameters
-#[derive(Debug, Clone)]
-pub struct SparkExceptionInfo {
-    /// The fully qualified Java exception class name
-    pub exception_class: String,
-    /// The Spark error class (e.g., "DIVIDE_BY_ZERO")
-    pub error_class: String,
-    /// Message parameters for the error template
-    pub message_parameters: Vec<(String, String)>,
-}
-
 impl SparkError {
     /// Serialize this error to JSON format for JNI transfer
     pub fn to_json(&self) -> String {

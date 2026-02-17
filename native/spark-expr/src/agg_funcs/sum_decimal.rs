@@ -29,7 +29,7 @@ use datafusion::logical_expr::{
 };
 use std::{any::Any, sync::Arc};
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug)]
 pub struct SumDecimal {
     /// Aggregate function signature
     signature: Signature,
@@ -43,6 +43,32 @@ pub struct SumDecimal {
     eval_mode: EvalMode,
     /// Optional expression ID for query context lookup during error creation
     expr_id: Option<u64>,
+    /// Session-scoped query context registry for error reporting
+    registry: Arc<crate::QueryContextRegistry>,
+}
+
+// Manually implement PartialEq, Eq, and Hash excluding the registry field
+// since registry is only for error reporting and doesn't affect function behavior
+impl PartialEq for SumDecimal {
+    fn eq(&self, other: &Self) -> bool {
+        self.precision == other.precision
+            && self.scale == other.scale
+            && self.eval_mode == other.eval_mode
+            && self.expr_id == other.expr_id
+            && self.result_type == other.result_type
+    }
+}
+
+impl Eq for SumDecimal {}
+
+impl std::hash::Hash for SumDecimal {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.precision.hash(state);
+        self.scale.hash(state);
+        self.eval_mode.hash(state);
+        self.expr_id.hash(state);
+        self.result_type.hash(state);
+    }
 }
 
 impl SumDecimal {
@@ -50,6 +76,7 @@ impl SumDecimal {
         data_type: DataType,
         eval_mode: EvalMode,
         expr_id: Option<u64>,
+        registry: Arc<crate::QueryContextRegistry>,
     ) -> DFResult<Self> {
         let (precision, scale) = match data_type {
             DataType::Decimal128(p, s) => (p, s),
@@ -66,6 +93,7 @@ impl SumDecimal {
             scale,
             eval_mode,
             expr_id,
+            registry,
         })
     }
 }
@@ -81,6 +109,7 @@ impl AggregateUDFImpl for SumDecimal {
             self.scale,
             self.eval_mode,
             self.expr_id,
+            Arc::clone(&self.registry),
         )))
     }
 
@@ -119,6 +148,7 @@ impl AggregateUDFImpl for SumDecimal {
             self.precision,
             self.eval_mode,
             self.expr_id,
+            Arc::clone(&self.registry),
         )))
     }
 
@@ -147,10 +177,17 @@ struct SumDecimalAccumulator {
     scale: i8,
     eval_mode: EvalMode,
     expr_id: Option<u64>,
+    registry: Arc<crate::QueryContextRegistry>,
 }
 
 impl SumDecimalAccumulator {
-    fn new(precision: u8, scale: i8, eval_mode: EvalMode, expr_id: Option<u64>) -> Self {
+    fn new(
+        precision: u8,
+        scale: i8,
+        eval_mode: EvalMode,
+        expr_id: Option<u64>,
+        registry: Arc<crate::QueryContextRegistry>,
+    ) -> Self {
         // For decimal sum, always track is_empty regardless of eval_mode
         // This matches Spark's behavior where DecimalType always uses shouldTrackIsEmpty = true
         Self {
@@ -160,6 +197,7 @@ impl SumDecimalAccumulator {
             scale,
             eval_mode,
             expr_id,
+            registry,
         }
     }
 
@@ -191,8 +229,7 @@ impl SumDecimalAccumulator {
     /// Wrap a SparkError with QueryContext if expr_id is available
     fn wrap_error_with_context(&self, error: crate::SparkError) -> DataFusionError {
         if let Some(expr_id) = self.expr_id {
-            let registry = crate::context::get_global_query_context_registry();
-            if let Some(query_ctx) = registry.get(expr_id) {
+            if let Some(query_ctx) = self.registry.get(expr_id) {
                 let wrapped = SparkErrorWithContext::with_context(error, query_ctx);
                 return DataFusionError::External(Box::new(wrapped));
             }
@@ -337,6 +374,7 @@ struct SumDecimalGroupsAccumulator {
     precision: u8,
     eval_mode: EvalMode,
     expr_id: Option<u64>,
+    registry: Arc<crate::QueryContextRegistry>,
 }
 
 impl SumDecimalGroupsAccumulator {
@@ -345,6 +383,7 @@ impl SumDecimalGroupsAccumulator {
         precision: u8,
         eval_mode: EvalMode,
         expr_id: Option<u64>,
+        registry: Arc<crate::QueryContextRegistry>,
     ) -> Self {
         Self {
             sum: Vec::new(),
@@ -353,6 +392,7 @@ impl SumDecimalGroupsAccumulator {
             precision,
             eval_mode,
             expr_id,
+            registry,
         }
     }
 
@@ -365,8 +405,7 @@ impl SumDecimalGroupsAccumulator {
     /// Wrap a SparkError with QueryContext if expr_id is available
     fn wrap_error_with_context(&self, error: crate::SparkError) -> DataFusionError {
         if let Some(expr_id) = self.expr_id {
-            let registry = crate::context::get_global_query_context_registry();
-            if let Some(query_ctx) = registry.get(expr_id) {
+            if let Some(query_ctx) = self.registry.get(expr_id) {
                 let wrapped = SparkErrorWithContext::with_context(error, query_ctx);
                 return DataFusionError::External(Box::new(wrapped));
             }
