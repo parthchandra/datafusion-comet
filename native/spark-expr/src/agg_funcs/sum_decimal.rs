@@ -627,7 +627,13 @@ mod tests {
 
     #[test]
     fn invalid_data_type() {
-        assert!(SumDecimal::try_new(DataType::Int32, EvalMode::Legacy, None).is_err());
+        assert!(SumDecimal::try_new(
+            DataType::Int32,
+            EvalMode::Legacy,
+            None,
+            crate::context::create_query_context_registry(),
+        )
+        .is_err());
     }
 
     #[tokio::test]
@@ -652,6 +658,7 @@ mod tests {
             data_type.clone(),
             EvalMode::Legacy,
             None,
+            crate::context::create_query_context_registry(),
         )?));
 
         let aggr_expr = AggregateExprBuilder::new(aggregate_udf, vec![c1])
