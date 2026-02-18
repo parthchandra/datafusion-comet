@@ -63,7 +63,7 @@ pub struct AvgDecimal {
     result_data_type: DataType,
     eval_mode: EvalMode,
     expr_id: Option<u64>,
-    registry: Arc<crate::QueryContextRegistry>,
+    registry: Arc<crate::QueryContextMap>,
 }
 
 // Manually implement PartialEq, Eq, and Hash excluding the registry field
@@ -94,7 +94,7 @@ impl AvgDecimal {
         sum_type: DataType,
         eval_mode: EvalMode,
         expr_id: Option<u64>,
-        registry: Arc<crate::QueryContextRegistry>,
+        registry: Arc<crate::QueryContextMap>,
     ) -> Self {
         Self {
             signature: Signature::user_defined(Immutable),
@@ -222,7 +222,7 @@ struct AvgDecimalAccumulator {
     target_scale: i8,
     eval_mode: EvalMode,
     expr_id: Option<u64>,
-    registry: Arc<crate::QueryContextRegistry>,
+    registry: Arc<crate::QueryContextMap>,
 }
 
 impl AvgDecimalAccumulator {
@@ -233,7 +233,7 @@ impl AvgDecimalAccumulator {
         target_scale: i8,
         eval_mode: EvalMode,
         expr_id: Option<u64>,
-        registry: Arc<crate::QueryContextRegistry>,
+        registry: Arc<crate::QueryContextMap>,
     ) -> Self {
         Self {
             sum: None,
@@ -425,7 +425,7 @@ struct AvgDecimalGroupsAccumulator {
     /// Optional expression ID for query context lookup during error creation
     expr_id: Option<u64>,
     /// Session-scoped query context registry for error reporting
-    registry: Arc<crate::QueryContextRegistry>,
+    registry: Arc<crate::QueryContextMap>,
 }
 
 impl AvgDecimalGroupsAccumulator {
@@ -438,7 +438,7 @@ impl AvgDecimalGroupsAccumulator {
         sum_scale: i8,
         eval_mode: EvalMode,
         expr_id: Option<u64>,
-        registry: Arc<crate::QueryContextRegistry>,
+        registry: Arc<crate::QueryContextMap>,
     ) -> Self {
         Self {
             is_not_null: BooleanBufferBuilder::new(0),

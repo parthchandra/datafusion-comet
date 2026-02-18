@@ -44,7 +44,7 @@ pub struct SumDecimal {
     /// Optional expression ID for query context lookup during error creation
     expr_id: Option<u64>,
     /// Session-scoped query context registry for error reporting
-    registry: Arc<crate::QueryContextRegistry>,
+    registry: Arc<crate::QueryContextMap>,
 }
 
 // Manually implement PartialEq, Eq, and Hash excluding the registry field
@@ -76,7 +76,7 @@ impl SumDecimal {
         data_type: DataType,
         eval_mode: EvalMode,
         expr_id: Option<u64>,
-        registry: Arc<crate::QueryContextRegistry>,
+        registry: Arc<crate::QueryContextMap>,
     ) -> DFResult<Self> {
         let (precision, scale) = match data_type {
             DataType::Decimal128(p, s) => (p, s),
@@ -177,7 +177,7 @@ struct SumDecimalAccumulator {
     scale: i8,
     eval_mode: EvalMode,
     expr_id: Option<u64>,
-    registry: Arc<crate::QueryContextRegistry>,
+    registry: Arc<crate::QueryContextMap>,
 }
 
 impl SumDecimalAccumulator {
@@ -186,7 +186,7 @@ impl SumDecimalAccumulator {
         scale: i8,
         eval_mode: EvalMode,
         expr_id: Option<u64>,
-        registry: Arc<crate::QueryContextRegistry>,
+        registry: Arc<crate::QueryContextMap>,
     ) -> Self {
         // For decimal sum, always track is_empty regardless of eval_mode
         // This matches Spark's behavior where DecimalType always uses shouldTrackIsEmpty = true
@@ -374,7 +374,7 @@ struct SumDecimalGroupsAccumulator {
     precision: u8,
     eval_mode: EvalMode,
     expr_id: Option<u64>,
-    registry: Arc<crate::QueryContextRegistry>,
+    registry: Arc<crate::QueryContextMap>,
 }
 
 impl SumDecimalGroupsAccumulator {
@@ -383,7 +383,7 @@ impl SumDecimalGroupsAccumulator {
         precision: u8,
         eval_mode: EvalMode,
         expr_id: Option<u64>,
-        registry: Arc<crate::QueryContextRegistry>,
+        registry: Arc<crate::QueryContextMap>,
     ) -> Self {
         Self {
             sum: Vec::new(),
@@ -631,7 +631,7 @@ mod tests {
             DataType::Int32,
             EvalMode::Legacy,
             None,
-            crate::context::create_query_context_registry(),
+            crate::create_query_context_map(),
         )
         .is_err());
     }
@@ -658,7 +658,7 @@ mod tests {
             data_type.clone(),
             EvalMode::Legacy,
             None,
-            crate::context::create_query_context_registry(),
+            crate::create_query_context_map(),
         )?));
 
         let aggr_expr = AggregateExprBuilder::new(aggregate_udf, vec![c1])

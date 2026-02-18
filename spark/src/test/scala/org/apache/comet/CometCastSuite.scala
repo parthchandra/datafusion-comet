@@ -1519,24 +1519,11 @@ class CometCastSuite extends CometTestBase with AdaptiveSparkPlanHelper {
                 if (CometSparkSessionExtensions.isSpark40Plus) {
                   // for Spark 4 we expect to sparkException carries the message
                   assert(sparkMessage.contains("SQLSTATE"))
-//                  if (sparkMessage.startsWith("[NUMERIC_VALUE_OUT_OF_RANGE.WITH_SUGGESTION]")) {
-//                    assert(
-//                      sparkMessage.replace(".WITH_SUGGESTION] ", "]").startsWith(cometMessage))
-//                  } else if (cometMessage.startsWith("[CAST_INVALID_INPUT]") || cometMessage
-//                      .startsWith("[CAST_OVERFLOW]")) {
-//                    assert(
-//                      sparkMessage.startsWith(
-//                        cometMessage
-//                          .replace(
-//                            "If necessary set \"spark.sql.ansi.enabled\" to \"false\" to bypass this error.",
-//                            "")))
-//                  } else {
                   // we compare a subset of the error message. Comet grabs the query
                   // context eagerly so it displays the call site at the
                   // line of code where the cast method was called, whereas spark grabs the context
                   // lazily and displays the call site at the line of code where the error is checked.
                   assert(sparkMessage.startsWith(cometMessage.substring(0, 40)))
-//                  }
                 } else {
                   // for Spark 3.4 we expect to reproduce the error message exactly
                   assert(cometMessage == sparkMessage)

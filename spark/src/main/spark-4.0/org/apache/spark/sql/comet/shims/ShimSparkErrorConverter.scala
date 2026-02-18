@@ -55,13 +55,12 @@ trait ShimSparkErrorConverter {
       summary: String): Option[Throwable] = {
 
     errorType match {
-      // ==================== Arithmetic Errors ====================
 
       case "DivideByZero" =>
         Some(QueryExecutionErrors.divideByZeroError(context.headOption.orNull))
 
       case "RemainderByZero" =>
-        // SPARK 4.0 REMOVED remainderByZeroError - use generic arithmetic exception
+        // SPARK 4.0 REMOVED remainderByZeroError  so we use generic arithmetic exception
         Some(
           new SparkException(
             errorClass = "REMAINDER_BY_ZERO",
@@ -92,14 +91,12 @@ trait ShimSparkErrorConverter {
             context.headOption.orNull))
 
       case "DatetimeOverflow" =>
-        // Spark 4.0 doesn't have datetimeOverflowError - use generic arithmetic exception
+        // Spark 4.0 doesn't have datetimeOverflowError
         Some(
           new SparkException(
             errorClass = "DATETIME_OVERFLOW",
             messageParameters = params.map { case (k, v) => (k, v.toString) },
             cause = null))
-
-      // ==================== Array Index Errors ====================
 
       case "InvalidArrayIndex" =>
         Some(
@@ -124,8 +121,6 @@ trait ShimSparkErrorConverter {
             params("bitPosition").toString.toLong,
             params("bitmapNumBytes").toString.toLong))
 
-      // ==================== Map/Collection Errors ====================
-
       case "DuplicatedMapKey" =>
         Some(QueryExecutionErrors.duplicateMapKeyFoundError(params("key")))
 
@@ -144,8 +139,6 @@ trait ShimSparkErrorConverter {
             "array",
             params("numElements").toString.toLong))
 
-      // ==================== Null Validation Errors ====================
-
       case "NotNullAssertViolation" =>
         Some(
           QueryExecutionErrors.foundNullValueForNotNullableFieldError(
@@ -157,8 +150,6 @@ trait ShimSparkErrorConverter {
             params.getOrElse("rowIndex", 0).toString.toInt,
             params("fieldName").toString))
 
-      // ==================== DateTime Errors ====================
-
       case "CannotParseTimestamp" =>
         Some(
           QueryExecutionErrors.ansiDateTimeParseError(
@@ -167,8 +158,6 @@ trait ShimSparkErrorConverter {
 
       case "InvalidFractionOfSecond" =>
         Some(QueryExecutionErrors.invalidFractionOfSecondError(params("value").toString.toDouble))
-
-      // ==================== Cast Errors ====================
 
       case "CastInvalidValue" =>
         val str = UTF8String.fromString(params("value").toString)
@@ -212,13 +201,9 @@ trait ShimSparkErrorConverter {
       case "CannotParseDecimal" =>
         Some(QueryExecutionErrors.cannotParseDecimalError())
 
-      // ==================== String/UTF8 Errors ====================
-
       case "InvalidUtf8String" =>
         val hexStr = UTF8String.fromString(params("hexString").toString)
         Some(QueryExecutionErrors.invalidUTF8StringError(hexStr))
-
-      // ==================== Function Parameter Errors ====================
 
       case "UnexpectedPositiveValue" =>
         Some(
@@ -231,8 +216,6 @@ trait ShimSparkErrorConverter {
             params("parameterName").toString,
             params("actualValue").toString.toInt))
 
-      // ==================== Regex Errors ====================
-
       case "InvalidRegexGroupIndex" =>
         Some(
           QueryExecutionErrors.invalidRegexGroupIndexError(
@@ -240,19 +223,13 @@ trait ShimSparkErrorConverter {
             params("groupCount").toString.toInt,
             params("groupIndex").toString.toInt))
 
-      // ==================== Unsupported Operation Errors ====================
-
       case "DatatypeCannotOrder" =>
         Some(
           QueryExecutionErrors.orderedOperationUnsupportedByDataTypeError(
             params("dataType").toString))
 
-      // ==================== Subquery Errors ====================
-
       case "ScalarSubqueryTooManyRows" =>
         Some(QueryExecutionErrors.multipleRowScalarSubqueryError(context.headOption.orNull))
-
-      // ==================== Interval Arithmetic Errors ====================
 
       case "IntervalArithmeticOverflowWithSuggestion" =>
         Some(

@@ -26,15 +26,16 @@ import org.apache.spark.{QueryContext, SparkException}
 import org.apache.spark.sql.catalyst.trees.SQLQueryContext
 import org.apache.spark.sql.comet.shims.ShimSparkErrorConverter
 
+import com.fasterxml.jackson.core.JsonParseException
+
 import org.apache.comet.exceptions.CometQueryExecutionException
 
 /**
- * Converts CometQueryExecutionException (with JSON payload) to appropriate Spark
- * QueryExecutionErrors.* exceptions using version-specific shims.
+ * Converts CometQueryExecutionException from native code (with JSON payload) to appropriate Spark
+ * QueryExecutionErrors.* exceptions
  *
- * This converter parses the JSON-encoded error information from native execution and delegates to
- * the version-specific ShimSparkErrorConverter trait for conversion to proper Spark exception
- * types.
+ * Parses the JSON-encoded error information from native execution and delegates to the
+ * version-specific ShimSparkErrorConverter trait for conversion to proper Spark exception types.
  *
  * For Spark 4.0+, this returns properly typed exceptions (SparkArithmeticException,
  * SparkArrayIndexOutOfBoundsException, etc.). For Spark 3.x, falls back to generic
@@ -63,9 +64,6 @@ object SparkErrorConverter extends ShimSparkErrorConverter {
   /**
    * Parse JSON from exception and convert to appropriate Spark exception.
    *
-   * Delegates to version-specific ShimSparkErrorConverter.convertErrorType() to call the proper
-   * QueryExecutionErrors.* method for the Spark version.
-   *
    * @param e
    *   the CometQueryExecutionException with JSON message
    * @return
@@ -77,51 +75,47 @@ object SparkErrorConverter extends ShimSparkErrorConverter {
         // Not JSON, return original exception
         return e
       }
-
-      val json = parse(e.getMessage)
-      val errorJson = json.extract[ErrorJson]
-      val params = errorJson.params.getOrElse(Map.empty)
-      val errorClass = errorJson.errorClass.getOrElse("_LEGACY_ERROR_TEMP_COMET")
-
-      // Build Spark SQLQueryContext if context is present
-      val sparkContext: Array[QueryContext] = errorJson.context match {
-        case Some(ctx) =>
-          Array(
-            SQLQueryContext(
-              sqlText = Some(ctx.sqlText),
-              line = Some(ctx.line),
-              startPosition = Some(ctx.startPosition),
-              originStartIndex = Some(ctx.startIndex),
-              originStopIndex = Some(ctx.stopIndex),
-              originObjectType = ctx.objectType,
-              originObjectName = ctx.objectName))
-        case None => Array.empty[QueryContext] // No context available
-      }
-
-      val summary: String = errorJson.summary.orNull
-
-      // Delegate to version-specific shim - let conversion exceptions propagate
-      val optEx = convertErrorType(errorJson.errorType, errorClass, params, sparkContext, summary)
-      optEx match {
-        case Some(exception) =>
-          // Shim successfully converted - return the proper typed exception
-          exception
-
-        case None =>
-          // Unknown error type - fallback to generic SparkException
-          new SparkException(
-            errorClass = errorClass,
-            messageParameters = paramsToStringMap(params),
-            cause = null)
-      }
     } catch {
       // Only catch JSON parsing/mapping exceptions - let conversion exceptions propagate
-      case exep: org.json4s.MappingException =>
-        // JSON parsing failed, return original exception
-        exep
-      case exep2: com.fasterxml.jackson.core.JsonParseException =>
-        // JSON parsing failed, return original exception
-        exep2
+      case _: MappingException | _: JsonParseException =>
+        return e
+    }
+
+    val json = parse(e.getMessage)
+    val errorJson = json.extract[ErrorJson]
+    val params = errorJson.params.getOrElse(Map.empty)
+    val errorClass = errorJson.errorClass.getOrElse("UNKNOWN_ERROR_TEMP_COMET")
+
+    // Build Spark SQLQueryContext if context is present (Not all errors carry the query context)
+    val sparkContext: Array[QueryContext] = errorJson.context match {
+      case Some(ctx) =>
+        Array(
+          SQLQueryContext(
+            sqlText = Some(ctx.sqlText),
+            line = Some(ctx.line),
+            startPosition = Some(ctx.startPosition),
+            originStartIndex = Some(ctx.startIndex),
+            originStopIndex = Some(ctx.stopIndex),
+            originObjectType = ctx.objectType,
+            originObjectName = ctx.objectName))
+      case None => Array.empty[QueryContext] // No context
+    }
+
+    val summary: String = errorJson.summary.orNull
+
+    // Delegate to version-specific shim - let conversion exceptions propagate
+    val optEx = convertErrorType(errorJson.errorType, errorClass, params, sparkContext, summary)
+    optEx match {
+      case Some(exception) =>
+        // successfully converted - return the proper typed exception
+        exception
+
+      case None =>
+        // Unknown error type - fallback to generic SparkException
+        new SparkException(
+          errorClass = errorClass,
+          messageParameters = paramsToStringMap(params),
+          cause = null)
     }
   }
 

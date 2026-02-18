@@ -267,22 +267,14 @@ object QueryPlanSerde extends Logging with CometExprShim {
     classOf[VariancePop] -> CometVariancePop,
     classOf[VarianceSamp] -> CometVarianceSamp)
 
-  /**
-   * Atomic counter for generating unique expression IDs. Each expression gets a unique ID which
-   * is used to look up QueryContext during error creation.
-   */
+  //  A unique id for each expression. ~used to look up QueryContext during error creation.
   private val exprIdCounter = new AtomicLong(0)
 
-  /**
-   * Generate the next unique expression ID.
-   */
   private def nextExprId(): Long = exprIdCounter.incrementAndGet()
 
   /**
-   * Extract QueryContext from a Spark expression's origin.
-   *
-   * This method extracts SQL context information (query text, line/position, object name) from
-   * the expression's origin, which is used for rich error messages.
+   * Extract SQL context information (query text, line/position, object name) from the
+   * expression's origin.
    *
    * @param expr
    *   The Spark expression to extract context from

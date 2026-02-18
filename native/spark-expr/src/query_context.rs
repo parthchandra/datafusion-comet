@@ -24,7 +24,7 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-/// Mirrors Spark's SQLQueryContext for error reporting.
+/// Based on Spark's SQLQueryContext for error reporting.
 ///
 /// Contains information about where an error occurred in a SQL query,
 /// including the full SQL text, line/column positions, and object context.
@@ -59,16 +59,6 @@ pub struct QueryContext {
 }
 
 impl QueryContext {
-    /// Creates a new QueryContext.
-    ///
-    /// # Arguments
-    /// * `sql_text` - Full SQL query text
-    /// * `start_index` - Start character offset (0-based)
-    /// * `stop_index` - Stop character offset (0-based, inclusive)
-    /// * `object_type` - Optional object type (e.g., "VIEW")
-    /// * `object_name` - Optional object name
-    /// * `line` - Line number (1-based)
-    /// * `start_position` - Column position (0-based)
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         sql_text: String,
@@ -91,6 +81,7 @@ impl QueryContext {
     }
 
     /// Generate a summary string showing SQL fragment with error location.
+    /// (From SQLQueryContext.summary)
     ///
     /// Format example:
     /// ```text
@@ -155,6 +146,83 @@ impl QueryContext {
             String::new()
         }
     }
+}
+
+use std::collections::HashMap;
+use std::sync::RwLock;
+
+/// Map that stores QueryContext information for expressions during execution.
+///
+/// This map is populated during plan deserialization and accessed
+/// during error creation to attach SQL context to exceptions.
+#[derive(Debug)]
+pub struct QueryContextMap {
+    /// Map from expression ID to QueryContext
+    contexts: RwLock<HashMap<u64, Arc<QueryContext>>>,
+}
+
+impl QueryContextMap {
+    pub fn new() -> Self {
+        Self {
+            contexts: RwLock::new(HashMap::new()),
+        }
+    }
+
+    /// Register a QueryContext for an expression ID.
+    ///
+    /// If the expression ID already exists, it will be replaced.
+    ///
+    /// # Arguments
+    /// * `expr_id` - Unique expression identifier from protobuf
+    /// * `context` - QueryContext containing SQL text and position info
+    pub fn register(&self, expr_id: u64, context: QueryContext) {
+        let mut contexts = self.contexts.write().unwrap();
+        contexts.insert(expr_id, Arc::new(context));
+    }
+
+    /// Get the QueryContext for an expression ID.
+    ///
+    /// Returns None if no context is registered for this expression.
+    ///
+    /// # Arguments
+    /// * `expr_id` - Expression identifier to look up
+    pub fn get(&self, expr_id: u64) -> Option<Arc<QueryContext>> {
+        let contexts = self.contexts.read().unwrap();
+        contexts.get(&expr_id).cloned()
+    }
+
+    /// Clear all registered contexts.
+    ///
+    /// This is typically called after plan execution completes to free memory.
+    pub fn clear(&self) {
+        let mut contexts = self.contexts.write().unwrap();
+        contexts.clear();
+    }
+
+    /// Return the number of registered contexts (for debugging/testing)
+    pub fn len(&self) -> usize {
+        let contexts = self.contexts.read().unwrap();
+        contexts.len()
+    }
+
+    /// Check if the map is empty
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl Default for QueryContextMap {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Create a new session-scoped QueryContextMap.
+///
+/// This should be called once per SessionContext during plan creation
+/// and passed to expressions that need query context for error reporting.
+pub fn create_query_context_map() -> Arc<QueryContextMap> {
+    Arc::new(QueryContextMap::new())
 }
 
 #[cfg(test)]
@@ -255,5 +323,38 @@ mod tests {
         // Should not serialize objectType and objectName when None
         assert!(!json.contains("objectType"));
         assert!(!json.contains("objectName"));
+    }
+
+    #[test]
+    fn test_map_register_and_get() {
+        let map = QueryContextMap::new();
+
+        let ctx = QueryContext::new("SELECT a/b FROM t".to_string(), 7, 9, None, None, 1, 7);
+
+        map.register(1, ctx.clone());
+
+        let retrieved = map.get(1).unwrap();
+        assert_eq!(*retrieved.sql_text, "SELECT a/b FROM t");
+        assert_eq!(retrieved.start_index, 7);
+    }
+
+    #[test]
+    fn test_map_get_nonexistent() {
+        let map = QueryContextMap::new();
+        assert!(map.get(999).is_none());
+    }
+
+    #[test]
+    fn test_map_clear() {
+        let map = QueryContextMap::new();
+
+        let ctx = QueryContext::new("SELECT a/b FROM t".to_string(), 7, 9, None, None, 1, 7);
+
+        map.register(1, ctx);
+        assert_eq!(map.len(), 1);
+
+        map.clear();
+        assert_eq!(map.len(), 0);
+        assert!(map.is_empty());
     }
 }

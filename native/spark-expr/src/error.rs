@@ -21,10 +21,7 @@ use std::sync::Arc;
 
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum SparkError {
-    // ==================== Cast and Conversion Errors ====================
-
-    // Note that this message format is based on Spark 3.4 and is more detailed than the message
-    // returned by Spark 3.3
+    // This list was generated from the Spark code. Many of the exceptions are not yet used by Comet
     #[error("[CAST_INVALID_INPUT] The value '{value}' of the type \"{from_type}\" cannot be cast to \"{to_type}\" \
         because it is malformed. Correct the value as per the syntax, or change its target type. \
         Use `try_cast` to tolerate malformed input and return NULL instead. If necessary \
@@ -57,7 +54,6 @@ pub enum SparkError {
     #[error("[CANNOT_PARSE_DECIMAL] Cannot parse decimal.")]
     CannotParseDecimal,
 
-    // ==================== Arithmetic Errors ====================
     #[error("[ARITHMETIC_OVERFLOW] {from_type} overflow. If necessary set \"spark.sql.ansi.enabled\" to \"false\" to bypass this error.")]
     ArithmeticOverflow { from_type: String },
 
@@ -87,7 +83,6 @@ pub enum SparkError {
     #[error("[DATETIME_OVERFLOW] Datetime arithmetic overflow.")]
     DatetimeOverflow,
 
-    // ==================== Array Index Errors ====================
     #[error("[INVALID_ARRAY_INDEX] The index {index_value} is out of bounds. The array has {array_size} elements. Use the SQL function get() to tolerate accessing element at invalid index and return NULL instead. If necessary set \"spark.sql.ansi.enabled\" to \"false\" to bypass this error.")]
     InvalidArrayIndex { index_value: i32, array_size: i32 },
 
@@ -104,7 +99,6 @@ pub enum SparkError {
     #[error("[INVALID_INDEX_OF_ZERO] The index 0 is invalid. An index shall be either < 0 or > 0 (the first element has index 1).")]
     InvalidIndexOfZero,
 
-    // ==================== Map/Collection Errors ====================
     #[error("[DUPLICATED_MAP_KEY] Cannot create map with duplicate keys: {key}.")]
     DuplicatedMapKey { key: String },
 
@@ -123,14 +117,12 @@ pub enum SparkError {
         max_elements: i64,
     },
 
-    // ==================== Null Validation Errors ====================
     #[error("[NOT_NULL_ASSERT_VIOLATION] The field `{field_name}` cannot be null.")]
     NotNullAssertViolation { field_name: String },
 
     #[error("[VALUE_IS_NULL] The value of field `{field_name}` at row {row_index} is null.")]
     ValueIsNull { field_name: String, row_index: i32 },
 
-    // ==================== DateTime Errors ====================
     #[error("[CANNOT_PARSE_TIMESTAMP] Cannot parse timestamp: {message}. Try using `{suggested_func}` instead.")]
     CannotParseTimestamp {
         message: String,
@@ -140,11 +132,9 @@ pub enum SparkError {
     #[error("[INVALID_FRACTION_OF_SECOND] The fraction of second {value} is invalid. Valid values are in the range [0, 60]. If necessary set \"spark.sql.ansi.enabled\" to \"false\" to bypass this error.")]
     InvalidFractionOfSecond { value: f64 },
 
-    // ==================== String/UTF8 Errors ====================
     #[error("[INVALID_UTF8_STRING] Invalid UTF-8 string: {hex_string}.")]
     InvalidUtf8String { hex_string: String },
 
-    // ==================== Function Parameter Errors ====================
     #[error("[UNEXPECTED_POSITIVE_VALUE] The {parameter_name} parameter must be less than or equal to 0. The actual value is {actual_value}.")]
     UnexpectedPositiveValue {
         parameter_name: String,
@@ -157,7 +147,6 @@ pub enum SparkError {
         actual_value: i32,
     },
 
-    // ==================== Regex Errors ====================
     #[error("[INVALID_PARAMETER_VALUE] Invalid regex group index {group_index} in function `{function_name}`. Group count is {group_count}.")]
     InvalidRegexGroupIndex {
         function_name: String,
@@ -165,15 +154,12 @@ pub enum SparkError {
         group_index: i32,
     },
 
-    // ==================== Unsupported Operation Errors ====================
     #[error("[DATATYPE_CANNOT_ORDER] Cannot order by type: {data_type}.")]
     DatatypeCannotOrder { data_type: String },
 
-    // ==================== Subquery Errors ====================
     #[error("[SCALAR_SUBQUERY_TOO_MANY_ROWS] Scalar subquery returned more than one row.")]
     ScalarSubqueryTooManyRows,
 
-    // ==================== Generic Errors ====================
     #[error("ArrowError: {0}.")]
     Arrow(Arc<ArrowError>),
 
@@ -569,8 +555,7 @@ impl SparkError {
 
 /// Convert decimal overflow to SparkError::NumericValueOutOfRange.
 ///
-/// This helper function creates the appropriate SparkError when a decimal value
-/// exceeds the precision limit for Decimal128 storage.
+/// Creates the appropriate SparkError when a decimal value exceeds the precision limit for Decimal128 storage.
 ///
 /// # Arguments
 /// * `value` - The i128 decimal value that overflowed
@@ -589,10 +574,9 @@ pub fn decimal_overflow_error(value: i128, precision: u8, scale: i8) -> SparkErr
 
 pub type SparkResult<T> = Result<T, SparkError>;
 
-/// Wrapper that adds QueryContext to SparkError without modifying SparkError variants.
+/// Wrapper that adds QueryContext to SparkError
 ///
-/// This allows attaching SQL context information (query text, line/position, object name)
-/// to errors without breaking existing code that uses SparkError directly.
+/// This allows attaching SQL context information (query text, line/position, object name) to errors
 #[derive(Debug, Clone)]
 pub struct SparkErrorWithContext {
     /// The underlying SparkError

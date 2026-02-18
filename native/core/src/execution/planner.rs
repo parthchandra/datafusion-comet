@@ -163,7 +163,7 @@ pub struct PhysicalPlanner {
     exec_context_id: i64,
     partition: i32,
     session_ctx: Arc<SessionContext>,
-    query_context_registry: Arc<datafusion_comet_spark_expr::QueryContextRegistry>,
+    query_context_registry: Arc<datafusion_comet_spark_expr::QueryContextMap>,
 }
 
 impl Default for PhysicalPlanner {
@@ -178,7 +178,7 @@ impl PhysicalPlanner {
             exec_context_id: TEST_EXEC_CONTEXT_ID,
             session_ctx,
             partition,
-            query_context_registry: datafusion_comet_spark_expr::create_query_context_registry(),
+            query_context_registry: datafusion_comet_spark_expr::create_query_context_map(),
         }
     }
 

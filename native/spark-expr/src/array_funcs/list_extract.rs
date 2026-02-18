@@ -41,7 +41,7 @@ pub struct ListExtract {
     one_based: bool,
     fail_on_error: bool,
     expr_id: Option<u64>,
-    registry: Arc<crate::QueryContextRegistry>,
+    registry: Arc<crate::QueryContextMap>,
 }
 
 impl Hash for ListExtract {
@@ -78,7 +78,7 @@ impl ListExtract {
         one_based: bool,
         fail_on_error: bool,
         expr_id: Option<u64>,
-        registry: Arc<crate::QueryContextRegistry>,
+        registry: Arc<crate::QueryContextMap>,
     ) -> Self {
         Self {
             child,
