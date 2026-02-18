@@ -437,6 +437,8 @@ impl PhysicalPlanner {
                         None,
                         true,
                         false,
+                        None, // No expr_id for internal map_extract wrapper
+                        Arc::clone(&self.query_context_registry),
                     ))),
                     // DataFusion 49 hardcodes return type for MD5 built in function as UTF8View
                     // which is not yet supported in Comet
@@ -588,6 +590,8 @@ impl PhysicalPlanner {
                     default_value,
                     expr.one_based,
                     expr.fail_on_error,
+                    spark_expr.expr_id,
+                    Arc::clone(&self.query_context_registry),
                 )))
             }
             ExprStruct::GetArrayStructFields(expr) => {

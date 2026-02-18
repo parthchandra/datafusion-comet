@@ -35,7 +35,7 @@ pub enum SparkError {
         to_type: String,
     },
 
-    #[error("[NUMERIC_VALUE_OUT_OF_RANGE] {value} cannot be represented as Decimal({precision}, {scale}). If necessary set \"spark.sql.ansi.enabled\" to \"false\" to bypass this error, and return NULL instead.")]
+    #[error("[NUMERIC_VALUE_OUT_OF_RANGE.WITH_SUGGESTION] {value} cannot be represented as Decimal({precision}, {scale}). If necessary set \"spark.sql.ansi.enabled\" to \"false\" to bypass this error, and return NULL instead.")]
     NumericValueOutOfRange {
         value: String,
         precision: u8,
@@ -78,20 +78,20 @@ pub enum SparkError {
         function_name: String,
     },
 
-    #[error("[INTERVAL_ARITHMETIC_OVERFLOW] Interval arithmetic overflow. Use `{function_name}` to tolerate overflow and return NULL instead. If necessary set \"spark.sql.ansi.enabled\" to \"false\" to bypass this error.")]
+    #[error("[INTERVAL_ARITHMETIC_OVERFLOW.WITH_SUGGESTION] Interval arithmetic overflow. Use `{function_name}` to tolerate overflow and return NULL instead. If necessary set \"spark.sql.ansi.enabled\" to \"false\" to bypass this error.")]
     IntervalArithmeticOverflowWithSuggestion { function_name: String },
 
-    #[error("[INTERVAL_ARITHMETIC_OVERFLOW] Interval arithmetic overflow. If necessary set \"spark.sql.ansi.enabled\" to \"false\" to bypass this error.")]
+    #[error("[INTERVAL_ARITHMETIC_OVERFLOW.WITHOUT_SUGGESTION] Interval arithmetic overflow. If necessary set \"spark.sql.ansi.enabled\" to \"false\" to bypass this error.")]
     IntervalArithmeticOverflowWithoutSuggestion,
 
     #[error("[DATETIME_OVERFLOW] Datetime arithmetic overflow.")]
     DatetimeOverflow,
 
     // ==================== Array Index Errors ====================
-    #[error("[INVALID_ARRAY_INDEX] The index {index_value} is out of bounds. The array has {array_size} elements. Use the SQL function `get(array, index)` or `try_element_at` instead. If necessary set \"spark.sql.ansi.enabled\" to \"false\" to bypass this error.")]
+    #[error("[INVALID_ARRAY_INDEX] The index {index_value} is out of bounds. The array has {array_size} elements. Use the SQL function get() to tolerate accessing element at invalid index and return NULL instead. If necessary set \"spark.sql.ansi.enabled\" to \"false\" to bypass this error.")]
     InvalidArrayIndex { index_value: i32, array_size: i32 },
 
-    #[error("[INVALID_ARRAY_INDEX_IN_ELEMENT_AT] The index {index_value} is out of bounds. The array has {array_size} elements. If necessary set \"spark.sql.ansi.enabled\" to \"false\" to bypass this error.")]
+    #[error("[INVALID_ARRAY_INDEX_IN_ELEMENT_AT] The index {index_value} is out of bounds. The array has {array_size} elements. Use try_element_at to tolerate accessing element at invalid index and return NULL instead. If necessary set \"spark.sql.ansi.enabled\" to \"false\" to bypass this error.")]
     InvalidElementAtIndex { index_value: i32, array_size: i32 },
 
     #[error("[INVALID_BITMAP_POSITION] The bit position {bit_position} is out of bounds. The bitmap has {bitmap_num_bytes} bytes ({bitmap_num_bits} bits).")]
@@ -101,7 +101,7 @@ pub enum SparkError {
         bitmap_num_bits: i64,
     },
 
-    #[error("[INVALID_INDEX_OF_ZERO] The index 0 is invalid. An index shall be either < 0 or > 0 (the first element is at index 1).")]
+    #[error("[INVALID_INDEX_OF_ZERO] The index 0 is invalid. An index shall be either < 0 or > 0 (the first element has index 1).")]
     InvalidIndexOfZero,
 
     // ==================== Map/Collection Errors ====================
@@ -502,7 +502,9 @@ impl SparkError {
             // Cast errors
             SparkError::CastInvalidValue { .. } => Some("CAST_INVALID_INPUT"),
             SparkError::CastOverFlow { .. } => Some("CAST_OVERFLOW"),
-            SparkError::NumericValueOutOfRange { .. } => Some("NUMERIC_VALUE_OUT_OF_RANGE"),
+            SparkError::NumericValueOutOfRange { .. } => {
+                Some("NUMERIC_VALUE_OUT_OF_RANGE.WITH_SUGGESTION")
+            }
             SparkError::NumericOutOfRange { .. } => Some("NUMERIC_OUT_OF_SUPPORTED_RANGE"),
             SparkError::CannotParseDecimal => Some("CANNOT_PARSE_DECIMAL"),
 
@@ -775,7 +777,10 @@ mod tests {
 
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed["errorType"], "NumericValueOutOfRange");
-        assert_eq!(parsed["errorClass"], "NUMERIC_VALUE_OUT_OF_RANGE");
+        assert_eq!(
+            parsed["errorClass"],
+            "NUMERIC_VALUE_OUT_OF_RANGE.WITH_SUGGESTION"
+        );
         assert_eq!(parsed["params"]["value"], "999.99");
         assert_eq!(parsed["params"]["precision"], 5);
         assert_eq!(parsed["params"]["scale"], 2);

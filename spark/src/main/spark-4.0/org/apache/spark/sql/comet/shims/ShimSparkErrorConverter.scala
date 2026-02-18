@@ -188,10 +188,19 @@ trait ShimSparkErrorConverter {
             // Parse decimal string (may have "BD" suffix from BigDecimal.toString)
             val cleanStr = if (valueStr.endsWith("BD")) valueStr.dropRight(2) else valueStr
             Decimal(cleanStr)
-          case ByteType => valueStr.toByte
-          case ShortType => valueStr.toShort
+          case ByteType =>
+            // Strip "T" suffix for TINYINT literals
+            val cleanStr = if (valueStr.endsWith("T")) valueStr.dropRight(1) else valueStr
+            cleanStr.toByte
+          case ShortType =>
+            // Strip "S" suffix for SMALLINT literals
+            val cleanStr = if (valueStr.endsWith("S")) valueStr.dropRight(1) else valueStr
+            cleanStr.toShort
           case IntegerType => valueStr.toInt
-          case LongType => valueStr.toLong
+          case LongType =>
+            // Strip "L" suffix for BIGINT literals
+            val cleanStr = if (valueStr.endsWith("L")) valueStr.dropRight(1) else valueStr
+            cleanStr.toLong
           case FloatType => valueStr.toFloat
           case DoubleType => valueStr.toDouble
           case StringType => UTF8String.fromString(valueStr)
