@@ -28,9 +28,7 @@ import org.apache.comet.serde.QueryPlanSerde.{exprToProtoInternal, optExprWithIn
 
 object CometStaticInvoke extends CometExpressionSerde[StaticInvoke] {
 
-  // With Spark 3.4, CharVarcharCodegenUtils.readSidePadding gets called to pad spaces for
-  // char types.
-  // See https://github.com/apache/spark/pull/38151
+  // Keys are (methodName, targetClass) from the StaticInvoke node.
   private val staticInvokeExpressions
       : Map[(String, Class[_]), CometExpressionSerde[StaticInvoke]] =
     Map(

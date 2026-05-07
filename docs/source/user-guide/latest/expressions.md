@@ -276,6 +276,14 @@ Comet supports using the following aggregate functions within window contexts wi
 | JsonToStructs        |
 | StructsToJson        |
 
+## URL Functions
+
+| Expression    | SQL              |
+| ------------- | ---------------- |
+| UrlEncode     | `url_encode`     |
+| UrlDecode     | `url_decode`     |
+| TryUrlDecode  | `try_url_decode` |
+
 ## Conversion Expressions
 
 | Expression |
